@@ -80,7 +80,7 @@
 <div class="wrap">
   <p class="eyebrow">Plantiful · Sales Tax Integration</p>
   <h1>Questions for the Avalara team</h1>
-  <p class="standfirst">Working list for our kickoff conversations. Grouped by topic; each question notes why we're asking, and where we already have a preferred direction it's marked <em>"our lean"</em> so you can confirm or redirect.</p>
+  <p class="standfirst">Working list for our kickoff conversations. Grouped by topic; each question notes why we're asking, and where we already have a preferred direction it's marked <em>"our lean"</em> so you can confirm or redirect. We've read the developer docs (use-cases + dev guide) — where they already answer something, the question says so and asks only for confirmation.</p>
 
   <div class="context">
     <strong>What we're building:</strong> Plantiful is nursery-management software (ERP + POS + e-commerce for plant nurseries). We're integrating AvaTax for sales-tax calculation. Architecture: a <strong>single Plantiful Avalara account</strong>, with each customer organization provisioned as its own <strong>company (sub-account)</strong> under it — our customers never hold Avalara credentials. For the initial release Avalara is a <strong>calculator only</strong>: all calls uncommitted, no committed transactions, no nexus declared in Avalara, registration tracked on our side. We are not pursuing the certification badge initially but want to architect so it's cheap later.
@@ -99,7 +99,7 @@
       <p class="q">Does the sandbox environment mirror production for the Companies API and multi-company setups, so we can test provisioning end-to-end?</p>
     </li>
     <li>
-      <p class="q">What exactly counts as a billable transaction on our plan? Specifically: are uncommitted calls billed the same as committed? Are lookup endpoints (<code>ListTaxCodes</code>, jurisdiction lists, <code>ResolveAddress</code>) free?</p>
+      <p class="q">What exactly counts as a billable transaction on our plan? Specifically: are <code>DocType: SalesOrder</code> calls (non-persisted estimates) billed the same as invoice documents? Uncommitted vs committed? Are lookup endpoints (<code>ListTaxCodes</code>, jurisdiction lists, <code>ResolveAddress</code>) free?</p>
       <p class="why">We gate the integration per org partly to control per-transaction cost, and we may skip calls for exempt customers when an org opts out of exempt tracking.</p>
     </li>
   </ol>
@@ -110,14 +110,23 @@
     <li>
       <p class="q">For calculator-only usage, do you recommend <code>DocType: SalesOrder</code> (not persisted) or uncommitted <code>SalesInvoice</code> (persisted)?</p>
       <p class="why">Determines whether we must issue <code>VoidTransaction</code> when an order is abandoned, deleted, or voided in Plantiful before posting — persisted documents would otherwise orphan on your side.</p>
-      <p class="lean">Our lean: SalesOrder for MVP so deletion is a no-op — confirm there's no downside for a future move to committed invoices.</p>
+      <p class="lean">Our lean: SalesOrder for MVP — your docs confirm it isn't persisted (id −1, "no cleanup for abandoned carts"), so deletion/abandonment is a no-op. Confirm there's no downside for a future move to committed invoices.</p>
     </li>
     <li>
       <p class="q">When we later adopt committed transactions, is reusing the same <code>docCode</code> from earlier uncommitted calls the right way to make Avalara treat it as one transaction?</p>
     </li>
     <li>
       <p class="q">For post-payment amendments (credits, refunds, corrections): when is <code>AdjustTransaction</code> appropriate vs a <code>ReturnInvoice</code> document?</p>
-      <p class="why">Nursery orders routinely change after invoicing; we need the compliant pattern before we design credits.</p>
+      <p class="why">Nursery orders routinely change after invoicing; we need the compliant pattern before we design credits. Your docs suggest: adjust/void until Locked, <code>RefundTransaction</code> for money returned — confirm that reading.</p>
+    </li>
+    <li>
+      <p class="q">Tax effective date: our orders carry an order date, ship date, invoice date, and payment date — which should drive the rate as the transaction <code>date</code>?</p>
+      <p class="why">Your docs' convention is invoice date; our tax records are per-shipment and nursery pre-orders can sit months between order and ship, across rate changes.</p>
+      <p class="lean">Our lean: ship date (the fulfillment/taxable event, per shipment) — confirm that's acceptable, and confirm returns should re-rate via <code>TaxOverride: TaxDate</code> to the original sale's date.</p>
+    </li>
+    <li>
+      <p class="q">Is <code>docCode</code> unique per company, or per company + document type?</p>
+      <p class="why">Your use-cases docs say per DocType (a return may reuse the invoice's number); the dev guide says per company. Affects our return-numbering strategy.</p>
     </li>
   </ol>
 
@@ -131,11 +140,16 @@
       <p class="q">What other non-taxable categories do nurseries or agricultural sellers commonly need that we haven't listed?</p>
     </li>
     <li>
-      <p class="q">Which codes should we use for freight/shipping, delivery drop charges, miscellaneous additional charges, and late fees?</p>
+      <p class="q">Which codes should we use for freight/shipping, delivery drop charges, miscellaneous additional charges, and late fees? Specifically: <code>FR020100</code> is <em>common carrier, FOB destination</em> — most nurseries deliver on their <strong>own trucks</strong>; which FR code applies there?</p>
+      <p class="why">Your docs show handling as <code>OH010000</code> (separate line) / <code>FR030000</code> (combined with freight), and that freight taxability follows the goods, prorated — we'll rely on that behavior.</p>
     </li>
     <li>
       <p class="q">For an item our customer marks non-taxable: should we send the line with <code>taxCode: NT</code> (or a specific code) or omit the line entirely?</p>
       <p class="lean">Our lean: always send with the code, so totals and the per-jurisdiction breakdown stay complete — confirm.</p>
+    </li>
+    <li>
+      <p class="q">How often does the tax-code list itself change — new codes added, codes deprecated or remapped? Annually? Rarely? Is there a changefeed or notification we should watch?</p>
+      <p class="why">Our catalog classifications map to your codes via a hardcoded table; we need to know whether that's a set-and-forget mapping or something to re-verify on a cadence.</p>
     </li>
   </ol>
 
@@ -164,8 +178,8 @@
       <p class="lean">Our lean: this enum was modeled on your standard code list, so we expect near-1:1 — the ones we need real guidance on are Hospital and Multiple points of use, plus what to send for Other (L verbatim, or a custom code per customer?)</p>
     </li>
     <li>
-      <p class="q">Is sending <code>entityUseCode</code> at the document header plus each line's <code>taxCode</code> the right way to get partial exemption behavior — e.g. an ag-exempt customer still taxed on hard goods?</p>
-      <p class="why">This is the single most important correctness case for our nurseries.</p>
+      <p class="q">Is sending <code>entityUseCode</code> at the document header plus each line's <code>taxCode</code> the right way to get partial exemption behavior — e.g. an ag-exempt customer still taxed on hard goods, per jurisdiction rules?</p>
+      <p class="why">This is the single most important correctness case for our nurseries — and your docs don't settle it. The dev guide reads blanket ("if your customer is exempt, referencing a taxable tax code will still generate a zero tax result"). We need explicit confirmation of the rule-conditional per-line behavior, and we'll verify in sandbox.</p>
     </li>
     <li>
       <p class="q">Is <code>exemptNo</code> the right field for the certificate/license number we hold as free text? Any format constraints?</p>
@@ -178,10 +192,10 @@
   <h2>5 · Discounts, fees & credits</h2>
   <ol class="qs">
     <li>
-      <p class="q">Line-level discounts: should we send the net line amount, or gross plus a separate negative discount line? Does the choice affect the taxable-base breakdown you return?</p>
+      <p class="q">Discount representation — confirm our reading of your docs: line discounts netted into the line amount; order-level discounts via the header <code>discount</code> field + <code>discounted: true</code> flags (pro-rated); third-party/manufacturer-reimbursed coupons as a negative line with <code>OC030000</code> (taxed on the pre-coupon base). Anything we're missing?</p>
     </li>
     <li>
-      <p class="q">Do different discount types need different treatment — manual discounts vs promotions/coupons? In states that tax the pre-coupon amount for seller-reimbursed coupons, how should the transaction be represented?</p>
+      <p class="q">For store promotions where the nursery itself funds the discount (including POS coupons), we'll treat them as seller-funded (reduce the taxable base) — is that the correct default? What distinguishes a "third-party" coupon in practice?</p>
     </li>
     <li>
       <p class="q">Line-level fees (a fee attached to a specific line, where the fee may be taxable even when the item is not): own line with the fee's tax code, or folded into the item line?</p>
@@ -202,31 +216,28 @@
     </li>
   </ol>
 
-  <h2>7 · Registration & home-rule jurisdictions</h2>
-  <p class="sec-note">For the initial release, where an org is registered lives in Plantiful — nexus is not declared in Avalara.</p>
+  <h2>7 · Registration, nexus &amp; home-rule jurisdictions</h2>
+  <p class="sec-note">Registration is configured in Plantiful and synced to each org's Avalara company as nexus declarations (your docs: without declared nexus, calculations return $0).</p>
   <ol class="qs">
     <li>
-      <p class="q">Which endpoints should we use to source the list of US states, and the self-administered / home-rule sub-jurisdictions per state (AL, CO, LA, AK…), for our registration-picker UI?</p>
+      <p class="q">Which endpoints should we use to (a) source the list of US states and the self-administered / home-rule sub-jurisdictions per state (AL, CO, LA, AK…) for our registration-picker UI, and (b) declare/remove nexus on a company programmatically as the org edits their registration?</p>
     </li>
     <li>
-      <p class="q">When a destination is in a home-rule state where the org is registered only in some local jurisdictions, we plan to call AvaTax and then suppress the tax for jurisdictions the org isn't registered in. How do we reliably match the authority identifiers in your response to the jurisdiction list from the endpoint above?</p>
-      <p class="why">Sanity check welcome: is response-side suppression the right pattern here, or is there a request-side way to scope which jurisdictions apply without declaring nexus?</p>
+      <p class="q">When we declare nexus for a home-rule state, can we scope it to specific local jurisdictions so the calculation natively excludes locals the org isn't registered in? Or do we still need to suppress those authorities from the response ourselves?</p>
+      <p class="why">If nexus declarations handle this natively, we can drop our planned response-side suppression entirely — much preferred.</p>
     </li>
     <li>
-      <p class="q">When the destination state isn't one the org is registered in, we skip the call and apply $0. Any concerns with that approach from your side?</p>
+      <p class="q">For destination states with no declared nexus, your engine returns $0 (full amount as exempt). As a cost optimization we may skip those calls client-side and apply $0 directly — any concerns? Your docs note "you must always call CreateTransaction" so exempt amounts get reported — does that matter for a calculator-only (uncommitted) integration?</p>
     </li>
   </ol>
 
   <h2>8 · Operations & limits</h2>
   <ol class="qs">
     <li>
-      <p class="q">What are the rate limits and expected latency for <code>CreateTransaction</code>? What call-ratio-per-order do you consider healthy? (We plan to debounce to roughly 3–5 calls per order.)</p>
+      <p class="q">The developer docs publish no SLA, latency, or rate-limit numbers (only error 1723, a concurrency limit). What are the actual limits and latency expectations we should engineer against? What call-ratio-per-order do you consider healthy? (We plan to debounce to roughly 3–5 calls per order.)</p>
     </li>
     <li>
-      <p class="q">What's the recommended way to monitor service health — status page, webhooks, error codes we should treat as retryable vs terminal?</p>
-    </li>
-    <li>
-      <p class="q">Should we send the <code>X-Avalara-Client</code> header even though we're not pursuing certification initially? What format do you want from us?</p>
+      <p class="q">Beyond status.avalara.com, is there a machine-readable health signal or webhook? Which error codes do you consider retryable vs terminal? (We'll retry persisted docs via <code>CreateOrAdjustTransaction</code> per your docs.)</p>
     </li>
     <li>
       <p class="q">Is the official JS SDK (<code>avatax</code> on npm, AvaTax-REST-V2-JS-SDK) the recommended client for Node backends? Anything about its maintenance cadence we should know?</p>
