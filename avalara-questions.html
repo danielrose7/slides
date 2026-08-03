@@ -124,8 +124,8 @@
       <p class="why">Nursery pre-orders can sit months between order and fulfillment, across rate changes — we want the convention nailed down before we build. Also confirm returns re-rate via <code>TaxOverride: TaxDate</code> to the original sale's date.</p>
     </li>
     <li>
-      <p class="q">Is <code>docCode</code> unique per company, or per company + document type?</p>
-      <p class="why">Your use-cases docs say per DocType (a return may reuse the invoice's number); the dev guide says per company. Affects our return-numbering strategy.</p>
+      <p class="q">Is <code>docCode</code> unique per company, or per company + document type? And confirming: the namespace is fully isolated between companies — every org's company under our account can carry its own "1001" document with no cross-company collision or cross-reference?</p>
+      <p class="why">Your dev guide says codes are "unique within each company," which is what we want — our customer orgs each have their own order numbering, so the same number will exist under many companies. The per-DocType question affects return numbering (use-cases docs say a return may reuse the invoice's number; the dev guide says per company).</p>
     </li>
   </ol>
 
