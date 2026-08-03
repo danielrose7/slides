@@ -120,9 +120,8 @@
       <p class="why">Nursery orders routinely change after invoicing; we need the compliant pattern before we design credits. Your docs suggest: adjust/void until Locked, <code>RefundTransaction</code> for money returned — confirm that reading.</p>
     </li>
     <li>
-      <p class="q">Tax effective date: our orders carry an order date, ship date, invoice date, and payment date — which should drive the rate as the transaction <code>date</code>?</p>
-      <p class="why">Your docs' convention is invoice date; our tax records are per-shipment and nursery pre-orders can sit months between order and ship, across rate changes.</p>
-      <p class="lean">Our lean: ship date (the fulfillment/taxable event, per shipment) — confirm that's acceptable, and confirm returns should re-rate via <code>TaxOverride: TaxDate</code> to the original sale's date.</p>
+      <p class="q">Tax effective date: our orders carry an order date, ship date, invoice date, and payment date — which should drive the rate as the transaction <code>date</code>? Your docs' convention is invoice date — happy to follow that; is ship date equally acceptable given our records are per-shipment?</p>
+      <p class="why">Nursery pre-orders can sit months between order and fulfillment, across rate changes — we want the convention nailed down before we build. Also confirm returns re-rate via <code>TaxOverride: TaxDate</code> to the original sale's date.</p>
     </li>
     <li>
       <p class="q">Is <code>docCode</code> unique per company, or per company + document type?</p>
