@@ -100,34 +100,21 @@
         </li>
       </ul>
 
-      <h2>Pending verifications</h2>
+      <h2>Open items</h2>
       <div class="pending">
-        <p class="t">Verify before building on</p>
-        <ul>
-          <li>Partial-exemption behavior in sandbox (client scaffold verification suite)</li>
-          <li>Entity/use letters vs live <code>ListEntityUseCodes</code> (same suite)</li>
-          <li>docCode uniqueness key — company vs +DocType vs +customerCode (entitlement ticket tests)</li>
-          <li>
-            ✅ <s>HOSPITAL / MULTIPLE_POINTS_OF_USE exemption usage in prd</s> — resolved 2026-08-04, see
-            production findings below
-          </li>
-          <li>
-            ✅ <s>Debounce window sizing from 30-day prd edit-gap analysis</s> — resolved 2026-08-04: 30s
-            window recommended, see <a href="./calculation-flow.html">calculation flow</a>
-          </li>
-        </ul>
-        <p class="t">Open design decisions</p>
+        <p class="t">All tracked on the project board</p>
         <ul>
           <li>
-            ✅ <s>Return doc type / linkage / correction boundary</s> — punted for v1 (2026-08-04):
-            estimates-only means no persisted return docs; scaffolding kept on the returns ticket for the
-            commit era (see <a href="./lifecycle.html">lifecycle</a>)
+            Every remaining verification and open design decision is captured as an acceptance criterion on
+            its owning ticket in the <strong>Sales Tax v2 (Avalara +)</strong> Linear project — sandbox
+            checks on the client scaffold, docCode uniqueness on the entitlement ticket, home-rule scoping
+            on the registration ticket, the POS fallback amount on the POS ticket, and client-header
+            variants on the sandbox setup ticket. Nothing is pending outside the board.
           </li>
           <li>
-            Home-rule nexus scoping — do subset local declarations natively scope calculation, and is
-            response-side suppression needed at all? (registration ticket)
+            Returns were punted for v1 entirely (estimates-only) — scaffolding lives on the returns ticket
+            for the commit era (see <a href="./lifecycle.html">lifecycle</a>).
           </li>
-          <li>POS fallback tax amount when calculation fails at checkout (POS ticket)</li>
         </ul>
       </div>
 
