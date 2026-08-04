@@ -258,3 +258,74 @@ footer {
   color: var(--ink-faint);
   font-size: 0.78rem;
 }
+.mock {
+  margin: 1rem 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 0.4rem 1.1rem;
+}
+.mock-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  border-bottom: 1px solid var(--line);
+  padding: 0.65rem 0;
+  font-size: 0.9rem;
+}
+.mock-row:last-child {
+  border-bottom: none;
+}
+.mock-state {
+  flex: 0 0 7.5rem;
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mock-label {
+  flex: 1 1 8rem;
+}
+.mock-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.mock-value.stale {
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+.mock-value.stale::after {
+  content: " *";
+  color: var(--warn);
+  font-weight: 700;
+}
+.mock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: default;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  padding: 0.15rem 0.55rem;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.mock-spin {
+  display: inline-block;
+  animation: mock-rotate 1.2s linear infinite;
+}
+@keyframes mock-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.mock-caption {
+  margin: 0;
+  flex-basis: 100%;
+  color: var(--ink-faint);
+  font-size: 0.76rem;
+}

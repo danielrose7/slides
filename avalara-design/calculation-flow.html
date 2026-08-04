@@ -144,6 +144,50 @@
         widening.
       </p>
 
+      <h3>Pending-recalc UI</h3>
+      <p>
+        Between a tax-basis edit and the debounced recalculation, the displayed tax is <em>stale by
+        design</em> — the UI must say so rather than present an outdated number as current. Three states:
+      </p>
+      <div class="mock">
+        <div class="mock-row">
+          <span class="mock-state">Up to date</span>
+          <span class="mock-label">Sales tax</span>
+          <span class="mock-value">$142.37</span>
+        </div>
+        <div class="mock-row">
+          <span class="mock-state">Pending recalc</span>
+          <span class="mock-label">Sales tax</span>
+          <span class="mock-value stale">$142.37</span>
+          <span class="mock-btn">↻ Calculate now</span>
+          <p class="mock-caption">* edits pending — recalculates automatically in ~30s, or click to flush</p>
+        </div>
+        <div class="mock-row">
+          <span class="mock-state">Calculating</span>
+          <span class="mock-label">Sales tax</span>
+          <span class="mock-value stale">$142.37</span>
+          <span class="mock-btn"><span class="mock-spin">⟳</span> Calculating…</span>
+        </div>
+      </div>
+      <ul>
+        <li>
+          <strong>Pending recalc</strong>: the last calculated amount stays visible but visibly stale —
+          dimmed with a marker (asterisk or equivalent), never presented as the current figure. Fields and
+          actions that would consume the tax total (e.g. taking payment) treat it as not-yet-final: disabled
+          or gated behind a flush.
+        </li>
+        <li>
+          <strong>Calculate now</strong>: an icon button on the tax line flushes the calculation window on
+          demand (the AC2c affordance) — nobody waits on the debounce timer when they want the number. While
+          the single-flight lock is held it shows the calculating state instead of firing again.
+        </li>
+        <li>
+          <strong>Refresh channel</strong>: once the calculation lands, the UI picks it up either by
+          client-managed polling while a recalc is pending, or by a server push on update — either is
+          acceptable; the requirement is only that the stale marker clears without a manual page refresh.
+        </li>
+      </ul>
+
       <h2>Cost-avoidance pre-checks (before any call)</h2>
       <ol>
         <li>Org entitlement on + org auto-calc setting on — else legacy manual-rate behavior.</li>
