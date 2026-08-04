@@ -68,6 +68,11 @@
   .q { font-weight: 600; font-size: 0.94rem; }
   .why { font-size: 0.84rem; color: var(--ink-soft); margin: 0.15rem 0 0; }
   .lean { font-size: 0.84rem; color: var(--accent); margin: 0.15rem 0 0; font-weight: 500; }
+  .ans {
+    font-size: 0.86rem; margin: 0.45rem 0 0; padding: 0.5rem 0.75rem;
+    background: var(--accent-soft); border-left: 3px solid var(--accent); border-radius: 4px;
+  }
+  .ans strong { color: var(--accent); }
   code {
     font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 0.85em;
     background: var(--mono-bg); padding: 0.05rem 0.3rem; border-radius: 3px;
@@ -80,10 +85,10 @@
 <div class="wrap">
   <p class="eyebrow">Plantiful · Sales Tax Integration</p>
   <h1>Questions for the Avalara team</h1>
-  <p class="standfirst">Working list for our kickoff conversations. Grouped by topic; each question notes why we're asking, and where we already have a preferred direction it's marked <em>"our lean"</em> so you can confirm or redirect. We've read the developer docs (use-cases + dev guide) — where they already answer something, the question says so and asks only for confirmation.</p>
+  <p class="standfirst">Prepared for — and now answered from — the 2026-08-03 kickoff with the Avalara team. Each question keeps its original framing (why we asked, our lean where we had one); the green blocks record what came back, including a few answers completed afterward by our own production-data checks. Where the kickoff couldn't answer authoritatively, the block says so and names where the verification now lives. Companion docs: the <a href="./avalara-design/index.html">design overview</a>.</p>
 
   <div class="context">
-    <strong>What we're building:</strong> Plantiful is nursery-management software (ERP + POS + e-commerce for plant nurseries). We're integrating AvaTax for sales-tax calculation. Architecture: a <strong>single Plantiful Avalara account</strong>, with each customer organization provisioned as its own <strong>company (sub-account)</strong> under it — our customers never hold Avalara credentials. For the initial release Avalara is a <strong>calculator only</strong>: all calls uncommitted, no committed transactions, no nexus declared in Avalara, registration tracked on our side. We are not pursuing the certification badge initially but want to architect so it's cheap later.
+    <strong>What we're building:</strong> Plantiful is nursery-management software (ERP + POS + e-commerce for plant nurseries). We're integrating AvaTax for sales-tax calculation. Architecture: a <strong>single Plantiful Avalara account</strong>, with each customer organization provisioned as its own <strong>company (sub-account)</strong> under it — our customers never hold Avalara credentials. For the initial release Avalara is a <strong>calculator only</strong>: all calls uncommitted, no committed transactions, no nexus declared in Avalara, registration tracked on our side. We are not pursuing the certification badge initially but want to architect so it's cheap later. <em>(Post-kickoff correction: nexus IS declared — per company, synced from our registration config — since undeclared nexus returns $0 everywhere.)</em>
   </div>
 
   <h2>1 · Account model & provisioning</h2>
@@ -91,16 +96,20 @@
     <li>
       <p class="q">Can we programmatically create a company per customer org under one account via the Companies API? Any limits on company count, or cost per company?</p>
       <p class="why">We expect dozens → hundreds of orgs over time, provisioned automatically when we enable the integration for an org.</p>
+      <p class="ans"><strong>Answered:</strong> yes — provision programmatically via <code>CreateCompanies</code>; no company-count limit or per-company cost was raised. This is now the entitlement-toggle flow: enabling an org provisions (or reuses) its company automatically.</p>
     </li>
     <li>
       <p class="q">Any constraints or conventions we should follow for <code>companyCode</code> naming?</p>
+      <p class="ans"><strong>Answered:</strong> caller-chosen, <strong>max 25 characters</strong>. We'll use a short, stable org identifier.</p>
     </li>
     <li>
       <p class="q">Does the sandbox environment mirror production for the Companies API and multi-company setups, so we can test provisioning end-to-end?</p>
+      <p class="ans"><strong>Answered:</strong> yes — sandbox (<code>sandbox-rest.avatax.com</code>) is a fully separate credential world mirroring production, and sandbox usage is not billed. All provisioning and calculation development runs there first.</p>
     </li>
     <li>
       <p class="q">What exactly counts as a billable transaction on our plan? Specifically: are <code>DocType: SalesOrder</code> calls (non-persisted estimates) billed the same as invoice documents? Uncommitted vs committed? Are lookup endpoints (<code>ListTaxCodes</code>, jurisdiction lists, <code>ResolveAddress</code>) free?</p>
       <p class="why">We gate the integration per org partly to control per-transaction cost, and we may skip calls for exempt customers when an org opts out of exempt tracking.</p>
+      <p class="ans"><strong>Answered:</strong> <code>SalesOrder</code> estimates bill at <strong>~1/10</strong> the committed-transaction rate. Lookups (<code>ListTaxCodes</code>, jurisdictions, <code>ResolveAddress</code>) are <strong>not free</strong> — they also bill at ~1/10 rate, so we cache them aggressively and never call per keystroke. Invoice-family documents bill at the full rate.</p>
     </li>
   </ol>
 
@@ -111,21 +120,26 @@
       <p class="q">For calculator-only usage, do you recommend <code>DocType: SalesOrder</code> (not persisted) or uncommitted <code>SalesInvoice</code> (persisted)?</p>
       <p class="why">Determines whether we must issue <code>VoidTransaction</code> when an order is abandoned, deleted, or voided in Plantiful before posting — persisted documents would otherwise orphan on your side.</p>
       <p class="lean">Our lean: SalesOrder for MVP — your docs confirm it isn't persisted (id −1, "no cleanup for abandoned carts"), so deletion/abandonment is a no-op. Confirm there's no downside for a future move to committed invoices.</p>
+      <p class="ans"><strong>Answered — lean confirmed:</strong> <code>SalesOrder</code> for v1. Unrecorded, ~1/10 cost, nothing to void on abandonment, and no penalty for a later move to committed invoices. This is now the settled v1 architecture.</p>
     </li>
     <li>
       <p class="q">When we later adopt committed transactions, is reusing the same <code>docCode</code> from earlier uncommitted calls the right way to make Avalara treat it as one transaction?</p>
+      <p class="ans"><strong>Partially answered:</strong> Order-type docs are never persisted, so reuse can't collide — an invoice may reuse the estimate's docCode. The exact uniqueness key (see §2 Q5) is being verified empirically in sandbox before we rely on it.</p>
     </li>
     <li>
       <p class="q">For post-payment amendments (credits, refunds, corrections): when is <code>AdjustTransaction</code> appropriate vs a <code>ReturnInvoice</code> document?</p>
       <p class="why">Nursery orders routinely change after invoicing; we need the compliant pattern before we design credits. Your docs suggest: adjust/void until Locked, <code>RefundTransaction</code> for money returned — confirm that reading.</p>
+      <p class="ans"><strong>Answered, then descoped:</strong> reading confirmed — returns are a return document re-rated at the original sale's tax date (<code>TaxOverride: TaxDate</code>, return-date <code>docDate</code>, positive qty + negative amount, returned lines only; <code>RefundTransaction</code> automates it), adjustments for small corrections. Since v1 is estimates-only, all persisted-return mechanics are <strong>punted to the commit era</strong>; the pattern is kept as scaffolding on the returns ticket.</p>
     </li>
     <li>
       <p class="q">Tax effective date: our orders carry an order date, ship date, invoice date, and payment date — which should drive the rate as the transaction <code>date</code>? Your docs' convention is invoice date — happy to follow that; is ship date equally acceptable given our records are per-shipment?</p>
       <p class="why">Nursery pre-orders can sit months between order and fulfillment, across rate changes — we want the convention nailed down before we build. Also confirm returns re-rate via <code>TaxOverride: TaxDate</code> to the original sale's date.</p>
+      <p class="ans"><strong>Answered:</strong> invoice date where available, ship date as the fallback. A date change is a tax-basis change and triggers recalculation like any line edit. Returns re-rating via <code>TaxOverride: TaxDate</code> confirmed.</p>
     </li>
     <li>
       <p class="q">Is <code>docCode</code> unique per company, or per company + document type? And confirming: the namespace is fully isolated between companies — every org's company under our account can carry its own "1001" document with no cross-company collision or cross-reference?</p>
       <p class="why">Your dev guide says codes are "unique within each company," which is what we want — our customer orgs each have their own order numbering, so the same number will exist under many companies. The per-DocType question affects return numbering (use-cases docs say a return may reuse the invoice's number; the dev guide says per company).</p>
+      <p class="ans"><strong>Not authoritatively answered:</strong> cross-company isolation confirmed, but the within-company key got a guess (per docCode + customerCode pairing) that conflicts with both doc sources. We're settling it with an <strong>empirical sandbox test matrix</strong> on the entitlement ticket; the engine's docCode scheme waits on the result.</p>
     </li>
   </ol>
 
@@ -134,21 +148,26 @@
     <li>
       <p class="q">What are your recommended tax codes for: live plants / nursery stock, seeds, fertilizer, agricultural supplies, generic taxable hard goods, and occasional food/edibles?</p>
       <p class="why">These become the preset options in our catalog "tax classification" dropdown, so growers never see raw codes.</p>
+      <p class="ans"><strong>Redirected:</strong> the kickoff team weren't tax-code specialists. They pointed us at their tax-code search UI (<code>taxcode.avatax.avalara.com</code>) and the <code>ListTaxCodes</code> API; expect a typical org to land on <strong>~6–12 codes</strong>. We research and finalize the preset list ourselves on the classification ticket, sanity-checked in sandbox. They also recommended assigning codes at <em>product-category</em> level — we're deciding variant- vs product-level assignment accordingly.</p>
     </li>
     <li>
       <p class="q">What other non-taxable categories do nurseries or agricultural sellers commonly need that we haven't listed?</p>
+      <p class="ans"><strong>Redirected:</strong> same as above — no vertical-specific list from the kickoff; discovered via their tax-code tools during our own research.</p>
     </li>
     <li>
       <p class="q">Which codes should we use for freight/shipping, delivery drop charges, miscellaneous additional charges, and late fees? Specifically: <code>FR020100</code> is <em>common carrier, FOB destination</em> — most nurseries deliver on their <strong>own trucks</strong>; which FR code applies there?</p>
       <p class="why">Your docs show handling as <code>OH010000</code> (separate line) / <code>FR030000</code> (combined with freight), and that freight taxability follows the goods, prorated — we'll rely on that behavior.</p>
+      <p class="ans"><strong>Answered in principle:</strong> the freight code depends on <strong>where ownership changes</strong> (FOB on-truck vs at delivery) — own-truck vs common-carrier take different codes; the specific own-truck code gets confirmed during implementation. We've since decided a hybrid resolution: the shipment's assigned truck decides (our trucks already carry an internal-vs-carrier flag), with an org-level default on the Avalara sub-account settings as fallback.</p>
     </li>
     <li>
       <p class="q">For an item our customer marks non-taxable: should we send the line with <code>taxCode: NT</code> (or a specific code) or omit the line entirely?</p>
       <p class="lean">Our lean: always send with the code, so totals and the per-jurisdiction breakdown stay complete — confirm.</p>
+      <p class="ans"><strong>Answered — and sharpened:</strong> always send the line, and in almost all cases do <strong>not</strong> use <code>NT</code> at all — send the item's real tax code and let Avalara decide taxability from jurisdiction + company + line.</p>
     </li>
     <li>
       <p class="q">How often does the tax-code list itself change — new codes added, codes deprecated or remapped? Annually? Rarely? Is there a changefeed or notification we should watch?</p>
       <p class="why">Our catalog classifications map to your codes via a hardcoded table; we need to know whether that's a set-and-forget mapping or something to re-verify on a cadence.</p>
+      <p class="ans"><strong>Answered:</strong> codes evolve infrequently; updates surface via the admin console. A hardcoded mapping with an occasional review is fine.</p>
     </li>
   </ol>
 
@@ -175,16 +194,20 @@
         Other (L)
       </p>
       <p class="lean">Our lean: this enum was modeled on your standard code list, so we expect near-1:1 — the ones we need real guidance on are Hospital and Multiple points of use, plus what to send for Other (L verbatim, or a custom code per customer?)</p>
+      <p class="ans"><strong>Redirected + completed by our own data:</strong> the kickoff pointed us at the <em>Exempt reason matrix for the U.S. and Canada</em> plus the live <code>ListEntityUseCodes</code> endpoint (letters differ across doc generations — the live list is the source of truth). We drafted the full 16-value map from the matrix. Our production check then found <strong>Hospital is genuinely used</strong> (117 active customers, 9 orgs — needs a real code decision, E vs L) while Multiple points of use and four others are used by zero customers — they still get zero-risk best-guess codes so the map covers all 16.</p>
     </li>
     <li>
       <p class="q">Is sending <code>entityUseCode</code> at the document header plus each line's <code>taxCode</code> the right way to get partial exemption behavior — e.g. an ag-exempt customer still taxed on hard goods, per jurisdiction rules?</p>
       <p class="why">This is the single most important correctness case for our nurseries — and your docs don't settle it. The dev guide reads blanket ("if your customer is exempt, referencing a taxable tax code will still generate a zero tax result"). We need explicit confirmation of the rule-conditional per-line behavior, and we'll verify in sandbox.</p>
+      <p class="ans"><strong>Answered — CONFIRMED:</strong> header <code>entityUseCode</code> + per-line <code>taxCode</code> is the mechanism, and exemption applies per line per jurisdiction rules — an ag-exempt customer is still taxed on non-qualifying lines. A sandbox spot-check runs with the first sandbox-capable code as belt-and-suspenders.</p>
     </li>
     <li>
       <p class="q">Is <code>exemptNo</code> the right field for the certificate/license number we hold as free text? Any format constraints?</p>
+      <p class="ans"><strong>Answered, with a caution:</strong> yes, free text is fine — but <strong>any value in <code>exemptNo</code> force-exempts the transaction</strong>. We only send it when exemption is actually intended.</p>
     </li>
     <li>
       <p class="q">Do we need exemption certificate management (ECM/CertCapture) for calculation to behave correctly, or is that only for audit documentation?</p>
+      <p class="ans"><strong>Answered:</strong> not needed for correct calculation — <code>entityUseCode</code>/<code>exemptNo</code> drive the math. ECM is audit documentation; out of scope for v1.</p>
     </li>
   </ol>
 
@@ -192,16 +215,20 @@
   <ol class="qs">
     <li>
       <p class="q">Discount representation — confirm our reading of your docs: line discounts netted into the line amount; order-level discounts via the header <code>discount</code> field + <code>discounted: true</code> flags (pro-rated); third-party/manufacturer-reimbursed coupons as a negative line with <code>OC030000</code> (taxed on the pre-coupon base). Anything we're missing?</p>
+      <p class="ans"><strong>Answered — simplified:</strong> their recommendation is to send <strong>net line amounts with discounts and credits already applied</strong> ($10 item at 10% discount ⇒ send $9), rather than the header-discount mechanism — so we're building a deterministic distribution util that spreads shipment-level discounts/credits down to lines. Third-party coupon treatment (negative <code>OC030000</code> line, pre-coupon base) confirmed as-is.</p>
     </li>
     <li>
       <p class="q">For store promotions where the nursery itself funds the discount (including POS coupons), we'll treat them as seller-funded (reduce the taxable base) — is that the correct default? What distinguishes a "third-party" coupon in practice?</p>
+      <p class="ans"><strong>Answered:</strong> correct default. "Third-party" means the seller is <em>reimbursed</em> (made whole) by someone else — that's what keeps the customer's taxable base at the pre-coupon amount.</p>
     </li>
     <li>
       <p class="q">Line-level fees (a fee attached to a specific line, where the fee may be taxable even when the item is not): own line with the fee's tax code, or folded into the item line?</p>
       <p class="lean">Our lean: own line, so a taxable fee on a non-taxable plant is taxed correctly — confirm.</p>
+      <p class="ans"><strong>Answered — lean confirmed:</strong> each fee is its own line with its own tax code.</p>
     </li>
     <li>
       <p class="q">Store credit applied to an order: as a discount (reduces taxable base) vs as a payment (tax-neutral) — is that distinction correct in all states? If a credit-as-discount lands after the invoice is paid, what's the compliant flow?</p>
+      <p class="ans"><strong>Answered + scoped on our side:</strong> the discount/payment distinction holds; credit-as-discount folds into the net-amount treatment above. The "after paid" case largely disappears by our own rule — a <strong>fully paid</strong> invoice can't receive new credits in Plantiful (that would require voiding a payment), so money-back on a fully paid order is always a return/refund flow (commit-era scaffolding), never a credit recalc.</p>
     </li>
   </ol>
 
@@ -209,9 +236,11 @@
   <ol class="qs">
     <li>
       <p class="q">For customer pickup at the nursery (including POS sales), is the pickup/register location's address the correct jurisdiction source in all states? Any origin-sourcing states where delivery orders also source from our customer's location?</p>
+      <p class="ans"><strong>Answered:</strong> yes — pickup/POS transactions send the facility's <strong>location code</strong> (facilities registered per company via <code>CreateLocations</code>) with ship-to = ship-from = the facility address. Origin-sourcing nuances are handled by Avalara from those inputs.</p>
     </li>
     <li>
       <p class="q">We send header-level ship-from per fulfilling location. Anything else needed for correct sourcing when a nursery later operates multiple locations?</p>
+      <p class="ans"><strong>Answered:</strong> register each facility as a location on the org's company (per-facility location codes) — then multi-location sourcing is just the right location code + addresses per transaction.</p>
     </li>
   </ol>
 
@@ -220,13 +249,16 @@
   <ol class="qs">
     <li>
       <p class="q">Which endpoints should we use to (a) source the list of US states and the self-administered / home-rule sub-jurisdictions per state (AL, CO, LA, AK…) for our registration-picker UI, and (b) declare/remove nexus on a company programmatically as the org edits their registration?</p>
+      <p class="ans"><strong>Deferred by design:</strong> home-rule configuration is per customer-account (per-org company), and the kickoff agreed the endpoint specifics can wait — they're now determination ACs on the registration ticket, resolved during that implementation.</p>
     </li>
     <li>
       <p class="q">When we declare nexus for a home-rule state, can we scope it to specific local jurisdictions so the calculation natively excludes locals the org isn't registered in? Or do we still need to suppress those authorities from the response ourselves?</p>
       <p class="why">If nexus declarations handle this natively, we can drop our planned response-side suppression entirely — much preferred.</p>
+      <p class="ans"><strong>Not authoritatively answered:</strong> open determination on the registration ticket. If native scoping holds, we drop response-side suppression from the engine entirely.</p>
     </li>
     <li>
       <p class="q">For destination states with no declared nexus, your engine returns $0 (full amount as exempt). As a cost optimization we may skip those calls client-side and apply $0 directly — any concerns? Your docs note "you must always call CreateTransaction" so exempt amounts get reported — does that matter for a calculator-only (uncommitted) integration?</p>
+      <p class="ans"><strong>Answered:</strong> fine for calculator-only — nothing is recorded or reported from <code>SalesOrder</code> calls, so the "always call" guidance doesn't bind v1. The registered-destination pre-check is purely a cost optimization; Avalara's nexus handling remains the compliance mechanism.</p>
     </li>
   </ol>
 
@@ -234,12 +266,15 @@
   <ol class="qs">
     <li>
       <p class="q">The developer docs publish no SLA, latency, or rate-limit numbers (only error 1723, a concurrency limit). What are the actual limits and latency expectations we should engineer against? What call-ratio-per-order do you consider healthy? (We plan to debounce to roughly 3–5 calls per order.)</p>
+      <p class="ans"><strong>Answered:</strong> ~3–5 calls per order across its life is the healthy budget; concurrency (error 1723) remains the one hard limit. Our production data since shows we average ~3.5 tax-affecting edits per order — inside budget even before the 30-second debounce window we chose from the data.</p>
     </li>
     <li>
       <p class="q">Beyond status.avalara.com, is there a machine-readable health signal or webhook? Which error codes do you consider retryable vs terminal? (We'll retry persisted docs via <code>CreateOrAdjustTransaction</code> per your docs.)</p>
+      <p class="ans"><strong>Answered:</strong> the status page is believed to support webhook subscriptions in addition to the page itself — we have a ticket to wire it into Slack. Retry posture confirmed: <code>SalesOrder</code> retries are inherently safe (unrecorded); persisted docs retry via <code>CreateOrAdjustTransaction</code>, on a fresh connection.</p>
     </li>
     <li>
       <p class="q">Is the official JS SDK (<code>avatax</code> on npm, AvaTax-REST-V2-JS-SDK) the recommended client for Node backends? Anything about its maintenance cadence we should know?</p>
+      <p class="ans"><strong>Answered:</strong> yes — the official <code>avatax</code> npm SDK is the recommended client; we'll use it unless our evaluation surfaces a blocker. Every call must carry the <code>X-Avalara-Client</code> header with our Avalara-issued value (exact sandbox vs production variants still to confirm).</p>
     </li>
   </ol>
 
@@ -247,13 +282,15 @@
   <ol class="qs">
     <li>
       <p class="q">When we move to committed transactions + declared nexus for remittance/reporting later: anything in the calculator-only architecture above that would make that migration painful?</p>
+      <p class="ans"><strong>Answered:</strong> no structural obstacles — and since nexus is declared per company from day one (calculation requires it), the commit era inherits a correct tax profile. Commit trigger will be invoice-fully-paid, recalculating at commit time rather than trusting a stale estimate.</p>
     </li>
     <li>
       <p class="q">What does the Sales Tax Calculation Badge / certification path look like for an integration structured as a single partner account with per-customer companies?</p>
+      <p class="ans"><strong>Answered:</strong> go-live is human-gated by an Avalara implementation coordinator regardless of badge status. Near launch we run a <strong>pre-launch review</strong> with them: a POS transaction, an exempt transaction, a standard transaction, a return invoice, and a user guide with videos. That review is a ticketed final gate in our plan.</p>
     </li>
   </ol>
 
-  <footer>Plantiful · prepared 2026-08-03 · contact: Daniel Rose (daniel.rose@tryplantiful.com)</footer>
+  <footer>Plantiful · prepared 2026-08-03 · answers recorded 2026-08-04 · contact: Daniel Rose (daniel.rose@tryplantiful.com)</footer>
 </div>
 </body>
 </html>
