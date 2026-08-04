@@ -115,6 +115,169 @@
         the board</strong>; every open thread has an assigned future home.
       </p>
 
+      <h2>Ticket index: new</h2>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Ticket</th>
+            <th>What it is</th>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5589">PLNT-5589</a></td>
+            <td>Sandbox account &amp; environment plumbing</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5590">PLNT-5590</a></td>
+            <td>Avalara client scaffold (connected-but-inert; hosts the sandbox verification suite)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5591">PLNT-5591</a></td>
+            <td>Org home/fulfillment address via org locations + facility location codes</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5592">PLNT-5592</a></td>
+            <td>AvalaraCallRecord: persist every AvaTax request &amp; response</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5593">PLNT-5593</a></td>
+            <td>Line-item discount &amp; fee tax handling, incl. the net-amount distribution util</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5594">PLNT-5594</a></td>
+            <td>Coverage audit: every load-bearing tax surface has an owning ticket</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5595">PLNT-5595</a></td>
+            <td>Variant tax-classification UI (dropdown, DG column, bulk edit)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5596">PLNT-5596</a></td>
+            <td>Non-variant charge tax-code settings UI (fees, discounts, shipping/drop)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5597">PLNT-5597</a></td>
+            <td>Tax-exempt customer exemption display &amp; cleanup flags</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5606">PLNT-5606</a></td>
+            <td>Returns tax handling — punted for v1; holds commit-era scaffolding</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5607">PLNT-5607</a></td>
+            <td>[DH] Avalara status page / webhooks → Slack</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5608">PLNT-5608</a></td>
+            <td>Pre-launch certification review with Avalara (final gate)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5629">PLNT-5629</a></td>
+            <td>Gate manual tax inputs when Avalara auto-calc is on</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5078">PLNT-5078</a></td>
+            <td>Address verification + canonical dedup layer (resurrected from vNext)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-888">PLNT-888</a></td>
+            <td>Address autocompletion (resurrected; shares 5078's provider decision)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5628">PLNT-5628</a></td>
+            <td>Hide unused exemption types — opened and canceled same day (map all 16 instead)</td>
+          </tr>
+        </table>
+      </div>
+
+      <h2>Ticket index: reworked</h2>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Ticket</th>
+            <th>What changed</th>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-3778">PLNT-3778</a></td>
+            <td>Spike — rescoped to design doc + prd checks; sandbox verifications delegated to ACs</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5533">PLNT-5533</a></td>
+            <td>[DT] Contract &amp; production account — reframed as the long-lead groundwork item</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5071">PLNT-5071</a></td>
+            <td>
+              Entitlement &amp; provisioning — rebuilt on single-account / per-org-company model; foundation
+              record (incl. freight default); docCode uniqueness tests
+            </td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5316">PLNT-5316</a></td>
+            <td>Registration — corrected to sync to Avalara as nexus; home-rule determination ACs</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-3777">PLNT-3777</a></td>
+            <td>Auto-calc setting — kill-switch semantics; required delivery-type (three-way under consideration)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5072">PLNT-5072</a></td>
+            <td>Variant tax classification — narrowed to schema + mapping (UI split to 5595)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-4975">PLNT-4975</a></td>
+            <td>Charge tax codes — narrowed to schema (UI split to 5596); hybrid freight resolution</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-4976">PLNT-4976</a></td>
+            <td>Entity/use mapping — all 16 values, draft table + prd usage data (display split to 5597)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-3779">PLNT-3779</a></td>
+            <td>Core engine — boundaries drawn vs triggers (5317) and persistence (5321)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5317">PLNT-5317</a></td>
+            <td>Recalc triggers — 30s debounce from prd data; flush lock; pending-recalc UI</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5075">PLNT-5075</a></td>
+            <td>Error UX — verbatim (escaped) Avalara messages; logged manual-proceed path</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5321">PLNT-5321</a></td>
+            <td>Per-jurisdiction breakdown — persistence-only home for the stored response data</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-3780">PLNT-3780</a></td>
+            <td>Sales-order tax detail — display-only, one shared panel</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-4977">PLNT-4977</a></td>
+            <td>Exempt-call gating — mixed-order predicate corrected (taxable lines always go to Avalara)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5318">PLNT-5318</a></td>
+            <td>POS — checkout-step calc only; location codes; fallback amount is an open AC</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5319">PLNT-5319</a></td>
+            <td>Online orders — checkout calc; persisted tax = displayed tax</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-5320">PLNT-5320</a></td>
+            <td>Non-Avalara calc + per-line classification editing on both paths</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-2035">PLNT-2035</a></td>
+            <td>QB sales-tax field sync — scoped to non-Avalara orgs (companion to 3782)</td>
+          </tr>
+          <tr>
+            <td><a href="https://linear.app/plantiful/issue/PLNT-3782">PLNT-3782</a></td>
+            <td>QB per-authority sync — scoped to Avalara orgs, exact Avalara amounts</td>
+          </tr>
+        </table>
+      </div>
+
       <footer>Sales Tax v2 (Avalara +) design docs · <a href="./index.html">back to overview</a></footer>
     </div>
   </body>
