@@ -34,7 +34,8 @@
           <code>companyCode</code> is caller-chosen, <strong>max 25 characters</strong>, and must be a short
           stable org identifier. The binding lives on an org ↔ Avalara foundation record
           (<code>IntegrationLink</code> analog): org FK, <code>companyCode</code>, provisioning status,
-          entitlement flag.
+          entitlement flag, and org-level default freight code(s) — the no-truck-assigned fallback for the
+          hybrid freight resolution (see calculation flow).
         </li>
         <li>
           <strong>Org admins never see Avalara credentials.</strong> The entitlement is internal-admin only;

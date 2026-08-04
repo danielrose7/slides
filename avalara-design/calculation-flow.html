@@ -243,9 +243,10 @@
           Summary lines: each shipping / drop charge / additional charge / fee / late fee is its own line
           with its configured tax code. The freight code varies by ownership-transfer point (own-truck vs
           common-carrier) and resolves <strong>hybrid</strong>: the shipment's assigned truck decides when
-          available (<code>Truck.internal</code> already marks internal vs carrier), falling back to an
-          org-level default — ~80% of orgs run their own trucks, but hybrid orgs choose per shipment, so a
-          single org-global code isn't enough.
+          available (<code>Truck.internal</code> already marks internal vs carrier), falling back to the
+          org-level default freight code(s) stored on the org's Avalara sub-account settings record — set at
+          onboarding so freight is calculable before any truck assignment. ~80% of orgs run their own
+          trucks, but hybrid orgs choose per shipment, so a single org-global code isn't enough.
         </li>
       </ul>
 
