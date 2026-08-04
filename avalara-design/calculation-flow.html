@@ -246,7 +246,10 @@
           available (<code>Truck.internal</code> already marks internal vs carrier), falling back to the
           org-level default freight code(s) stored on the org's Avalara sub-account settings record — set at
           onboarding so freight is calculable before any truck assignment. ~80% of orgs run their own
-          trucks, but hybrid orgs choose per shipment, so a single org-global code isn't enough.
+          trucks, but hybrid orgs choose per shipment, so a single org-global code isn't enough. A future
+          refinement under consideration: a dedicated carrier option on the order's delivery type (delivery
+          vs pickup vs carrier pick-up) informing the tax directly — design the delivery-type field so it
+          can absorb that without rework.
         </li>
       </ul>
 
