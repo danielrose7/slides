@@ -258,6 +258,29 @@ footer {
   color: var(--ink-faint);
   font-size: 0.78rem;
 }
+.exec {
+  margin: 1.2rem 0 0.5rem;
+  border: 1px solid var(--accent);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  padding: 1rem 1.2rem;
+}
+.exec .t {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.exec p {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+}
+.exec p:last-child {
+  margin-bottom: 0;
+}
 .mock {
   margin: 1rem 0;
   border: 1px solid var(--line);

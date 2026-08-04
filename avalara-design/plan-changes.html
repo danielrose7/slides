@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Avalara Sales Tax — What Changed in the Plan</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="backlink" href="./index.html">← Design overview</a>
+      <p class="eyebrow">Plantiful · Sales Tax v2 (Avalara +)</p>
+      <h1>What changed in the plan</h1>
+      <p class="standfirst">
+        The 2026-08-03/04 rework, at a high level: how today's board differs from the original ~19-ticket
+        export. The item-by-item record is the "Plan rework changelog" document on the Linear project; this
+        page is the shape of it.
+      </p>
+
+      <div class="exec">
+        <p class="t">Executive summary</p>
+        <p>
+          Plantiful is integrating Avalara AvaTax so organizations get automatic, address-accurate US sales
+          tax on every order surface — a repeated sales blocker (5–6 prospects, at least one lost) and a
+          prerequisite for retail/POS customers. <strong>v1 uses Avalara as a calculator only</strong>:
+          estimate-type calls at ~1/10 the committed-transaction cost, nothing recorded with tax
+          authorities, filing stays the org's own process. One Plantiful Avalara account; each org gets its
+          own Avalara company, provisioned automatically when we enable their entitlement.
+        </p>
+        <p>
+          The rework turned ~19 loosely ordered tickets into ~30 across six dependency-ordered milestones,
+          settled the load-bearing design decisions through a full docs crawl, an Avalara kickoff, and
+          production-data analysis, and deferred returns + committed transactions to a later phase. Cost is
+          controlled by entitlement gating, pre-call checks, and a data-sized debounce (orders average ~3.5
+          tax-affecting edits, inside Avalara's expected call budget). Longest lead item: the signed
+          contract and production account, human-gated by an Avalara implementation coordinator — schema and
+          data-model work proceeds in parallel with no Avalara dependency.
+          <strong>Every open question now lives as an acceptance criterion on an owned ticket</strong> —
+          nothing is pending outside the board.
+        </p>
+      </div>
+
+      <h2>Structure: phases → six named milestones</h2>
+      <p>
+        The original set was loosely grouped and partly ordered by when each idea arrived. It's now six
+        milestones — <strong>0 Groundwork · 1a Org onboarding · 1b Data model · 2 Configuration UI ·
+        3 Calculation · 4 QB sync</strong> — with a deliberate parallelism insight: 1a and 1b run
+        side-by-side because 1b has <em>zero</em> Avalara API dependency (schema work starts before sandbox
+        access exists), and each milestone-2 UI ticket blocks on its 1b backend half. A dependency-ordered
+        working sequence lives in the Linear project description; blocked-by relations encode the hard
+        edges.
+      </p>
+
+      <h2>Added the missing engineering substrate</h2>
+      <p>
+        The original set jumped straight to features. The rework added the groundwork tier nothing else can
+        run without: contract + production account, sandbox + environment plumbing, a connected-but-inert
+        client scaffold, the <code>AvalaraCallRecord</code> persistence model, and the org ↔ Avalara
+        foundation record carrying entitlement, company provisioning, and org-level defaults — all rebuilt
+        around the single-Plantiful-account / one-company-per-organization model.
+      </p>
+
+      <h2>Broke tickets apart along system seams</h2>
+      <ul>
+        <li>
+          <strong>Backend ↔ UI splits</strong>: variant tax-classification schema vs its catalog-admin UI;
+          non-variant charge codes vs the settings UI; exemption mapping vs the customer-facing display.
+        </li>
+        <li>
+          <strong>Boundary clarifications</strong> between overlapping tickets: one ticket owns the
+          calculation engine, another owns <em>when</em> it fires (triggers + debounce), the sales-order
+          ticket became display-only, and breakdown persistence stands alone.
+        </li>
+      </ul>
+
+      <h2>Corrected assumptions with research</h2>
+      <p>
+        A full developer-docs crawl plus the Avalara kickoff invalidated several original premises. The big
+        one: <strong>nexus</strong> — registration config cannot stay Plantiful-only (no declared nexus ⇒ $0
+        tax everywhere), so registration became a sync-to-Avalara ticket. Also established: lookups bill at
+        ~1/10 rate (not free); no <code>NT</code> short-circuit; net line amounts with discounts/credits
+        pre-applied; partial exemption confirmed as header + per-line mechanism; calculator-only v1 via the
+        unrecorded <code>SalesOrder</code> doc type.
+      </p>
+
+      <h2>Scope decisions that shrank v1</h2>
+      <ul>
+        <li>
+          <strong>Returns punted entirely</strong> — v1 is estimates-only, so the returns ticket became
+          commit-era scaffolding, taking void handling, replay, and idempotency out of v1 scope.
+        </li>
+        <li>Committed transactions isolated in a vNext ticket; v1 never records anything in Avalara.</li>
+        <li>
+          The <strong>fully-paid boundary</strong> eliminated the post-paid-credit recalc case: a fully paid
+          invoice can't receive new credits, so money-back is always a return/refund flow.
+        </li>
+        <li>Home-rule jurisdiction specifics deferred into the registration ticket's determination ACs.</li>
+      </ul>
+
+      <h2>Filled coverage gaps found along the way</h2>
+      <p>
+        New tickets for surfaces and workflows the original set didn't own: modal edit surfaces as recalc
+        triggers; line-item fee/discount tax handling (incl. the net-amount distribution util); a
+        coverage-audit checklist verifying every load-bearing tax surface has an owner; Avalara status page
+        → Slack; the pre-launch certification review; gating manual tax inputs when auto-calc is on; and two
+        resurrections from vNext — address verification (with canonical dedup) and address autocompletion.
+      </p>
+
+      <h2>Grounded open questions in data — or delegated them to ACs</h2>
+      <p>
+        Production analyses settled the exemption-enum usage question and sized the recalc debounce window
+        (30s, from 30 days of real edit gaps). Sandbox-blocked verifications — partial exemption behavior,
+        entity/use letter codes, docCode uniqueness — became acceptance criteria on the first tickets that
+        touch sandbox, instead of staying open spike threads. Result: <strong>nothing is pending outside
+        the board</strong>; every open thread has an assigned future home.
+      </p>
+
+      <footer>Sales Tax v2 (Avalara +) design docs · <a href="./index.html">back to overview</a></footer>
+    </div>
+  </body>
+</html>
