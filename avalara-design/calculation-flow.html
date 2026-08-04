@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Avalara Sales Tax — Calculation Flow</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="backlink" href="./index.html">← Design overview</a>
+      <p class="eyebrow">Plantiful · Sales Tax v2 (Avalara +)</p>
+      <h1>Calculation flow</h1>
+      <p class="standfirst">
+        When we call Avalara, how we batch those calls, and what the payload looks like.
+      </p>
+
+      <h2>Where calls hook in</h2>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Surface</th>
+            <th>Trigger</th>
+          </tr>
+          <tr>
+            <td>Sales order form / detail page</td>
+            <td>Tax-basis changes (below), via the flush/debounce model</td>
+          </tr>
+          <tr>
+            <td>Draft → quote → order conversion</td>
+            <td>Immediate recalc</td>
+          </tr>
+          <tr>
+            <td>POS</td>
+            <td>At checkout advance only — never while building the cart</td>
+          </tr>
+          <tr>
+            <td>Online orders</td>
+            <td>Checkout page, on contents/delivery-address change; persisted tax = displayed tax</td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        <strong>Tax-basis changes</strong> (each is a trigger): line added/removed; line quantity or price
+        change; delivery/pickup address change; summary line change (shipping, drop charge, fee, discount,
+        additional charge); <strong>tax effective date change</strong> (invoice date, or ship date when it's
+        the fallback — a date shift can cross a rate change); per-line classification change. Modal edit
+        surfaces count — add-line-item, update-line-item, shipment details, and shipment pricing modals are
+        where detail-page changes actually happen.
+      </p>
+
+      <h2>Flush / debounce model</h2>
+      <p>
+        Avalara bills per call and expects ~3–5 calls per order across its life. Two trigger classes:
+      </p>
+      <ul>
+        <li>
+          <strong>Full order update</strong> (bulk save, order-level edit flow) → fire immediately,
+          <strong>flushing</strong> the calculation window.
+        </li>
+        <li>
+          <strong>Single atomic operation</strong> (one line edit, one field change) → accumulate into the
+          calculation window; fire once it settles (debounce).
+        </li>
+        <li>
+          <strong>User flush affordance</strong>: a "recalculate tax now" action in the UI flushes the window
+          on demand — nobody waits on a timer when they want the number.
+        </li>
+      </ul>
+      <p>
+        The debounce window is chosen from data, not intuition: analyze 30 days of production sales-order
+        edit behavior (inter-edit gaps from sales-activity tracking, read-only prd connection), simulate
+        candidate windows against real edit streams, and pick the smallest window that keeps typical
+        burst-editing to one call. Record the distribution and the chosen value on the recalc ticket.
+      </p>
+
+      <h2>Cost-avoidance pre-checks (before any call)</h2>
+      <ol>
+        <li>Org entitlement on + org auto-calc setting on — else legacy manual-rate behavior.</li>
+        <li>
+          Destination state registered (per the org's registration config) — else apply $0 locally and skip
+          the billable call (Avalara would return $0 anyway via nexus).
+        </li>
+        <li>
+          Exempt customer + exempt-tracking setting off — skip the call and apply $0 locally
+          <strong>only when the order has no taxable-classification lines</strong>. Partial exemption means
+          an exempt customer can still owe tax on non-qualifying lines (ag-exempt customer buying hard
+          goods), so any order containing a taxable line goes to Avalara regardless of the tracking setting —
+          otherwise mixed orders under-collect. (Setting on: send exempt orders too, so the per-jurisdiction
+          exempt breakdown gets recorded.) Cover the mixed-order case with a test.
+        </li>
+      </ol>
+
+      <h2>Payload assembly</h2>
+      <ul>
+        <li><code>companyCode</code> — from the org's foundation record.</li>
+        <li>
+          <code>docCode</code> — scheme pending the uniqueness verification (per-company vs
+          per-company+DocType vs per docCode+customerCode). Prefer the human-matchable shipment name +
+          customer code if the verified key allows; otherwise a company-unique identifier (shipment external
+          ID).
+        </li>
+        <li>
+          <code>date</code> — tax effective date: invoice date, ship date fallback. Calendar-day semantics,
+          timezone-insensitive.
+        </li>
+        <li><code>customerCode</code> — Plantiful customer ID.</li>
+        <li>
+          Addresses:
+          <ul>
+            <li>Delivery: header <code>shipFrom</code> = fulfilling location, <code>shipTo</code> = delivery address.</li>
+            <li>
+              Pickup / POS: the facility's <strong>location code</strong> plus ship-to = ship-from = the
+              facility address (facilities registered per company via CreateLocations).
+            </li>
+          </ul>
+        </li>
+        <li>
+          Per line: <code>number</code>, <code>itemCode</code>, description, <code>quantity</code>,
+          <code>amount</code> (extended, <strong>net</strong> — see below), <code>taxCode</code> from the
+          item's classification. Send real tax codes always; no <code>NT</code> short-circuit.
+        </li>
+        <li>
+          Exempt customers: header <code>entityUseCode</code> from the exemption-reason mapping;
+          <code>exemptNo</code> carries the certificate number <strong>only when exemption is intended</strong> —
+          any value in that field force-exempts the transaction.
+        </li>
+        <li>
+          Summary lines: each shipping / drop charge / additional charge / fee / late fee is its own line
+          with its configured tax code (freight code varies by ownership-transfer point: own-truck vs
+          common-carrier).
+        </li>
+      </ul>
+
+      <h3>Net-amount distribution (discounts &amp; credits)</h3>
+      <p>
+        Avalara's recommendation: send net line amounts with discounts and credits already applied ($10 item
+        at 10% discount ⇒ send $9). A dedicated util distributes shipment-level discounts and credits down to
+        line amounts — layered on top of existing line-level discounts — with deterministic rounding:
+        distributed amounts sum exactly to shipment totals, remainder cents assigned by a stable rule,
+        property-tested.
+      </p>
+      <p>
+        Exception: third-party/manufacturer-reimbursed coupons go as a
+        <strong>negative line with tax code <code>OC030000</code></strong> — the customer is taxed on the
+        pre-coupon base because the seller is made whole.
+      </p>
+
+      <h2>Response handling</h2>
+      <ul>
+        <li>
+          Use Avalara's returned <strong>dollar amounts verbatim</strong> — never recompute from rates
+          (rounding drift vs QuickBooks is the failure mode).
+        </li>
+        <li>
+          Raw request/response → <code>AvalaraCallRecord</code>. Structured per-shipment, per-jurisdiction
+          breakdown (taxable / non-taxable / exempt / collected) is parsed from the stored response.
+        </li>
+        <li>
+          Zero-tax display logic: responses distinguish <code>taxableAmount</code> vs
+          <code>exemptAmount</code> (no-nexus and NOMAD-state results report the full amount as exempt) —
+          enough to explain <em>why</em> a line shows $0.
+        </li>
+      </ul>
+
+      <footer>Sales Tax v2 (Avalara +) design docs · <a href="./index.html">back to overview</a></footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Avalara Sales Tax — Architecture</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="backlink" href="./index.html">← Design overview</a>
+      <p class="eyebrow">Plantiful · Sales Tax v2 (Avalara +)</p>
+      <h1>Architecture</h1>
+      <p class="standfirst">
+        How Plantiful connects to Avalara: the account model, per-org companies, nexus sync, the client
+        layer, and call persistence.
+      </p>
+
+      <h2>Account &amp; company model</h2>
+      <pre><code>Plantiful Avalara account (credentials: accountId + licenseKey, server-side env)
+├── Company "org-a" (companyCode, nexus declarations, locations)
+├── Company "org-b"
+└── ... one per organization with the Avalara entitlement</code></pre>
+      <ul>
+        <li>
+          <strong>One Plantiful account per environment.</strong> Sandbox (<code>sandbox-rest.avatax.com</code>)
+          and production (<code>rest.avatax.com</code>) are fully separate credential worlds. One license key
+          per account per environment; regenerating instantly revokes the old key for every org — rotation is
+          a single coordinated swap, plan ops accordingly.
+        </li>
+        <li>
+          <strong>One Avalara company per organization</strong>, provisioned programmatically via the
+          Companies API when a Plantiful employee enables the org's Avalara entitlement.
+          <code>companyCode</code> is caller-chosen, <strong>max 25 characters</strong>, and must be a short
+          stable org identifier. The binding lives on an org ↔ Avalara foundation record
+          (<code>IntegrationLink</code> analog): org FK, <code>companyCode</code>, provisioning status,
+          entitlement flag.
+        </li>
+        <li>
+          <strong>Org admins never see Avalara credentials.</strong> The entitlement is internal-admin only;
+          the org-admin-facing surface is the auto-calc setting, which is hidden entirely when the
+          entitlement is off.
+        </li>
+        <li>
+          Re-enabling an org reuses its existing company; disabling preserves the binding and short-circuits
+          all transactional calls.
+        </li>
+      </ul>
+
+      <h2>Nexus: registration syncs to Avalara</h2>
+      <p>
+        Avalara returns <strong>$0 for any jurisdiction where the company has no declared nexus</strong>
+        ("If you do not declare any nexus, your account will not calculate any tax!"). Registration therefore
+        cannot live only in Plantiful:
+      </p>
+      <ul>
+        <li>
+          The org's sales-tax registration config (states; sub-state jurisdictions in home-rule states like
+          AL/CO/LA/AK) is edited in Plantiful and is the source of truth.
+        </li>
+        <li>
+          On save, Plantiful mirrors the config to the org's Avalara company as nexus declarations
+          (create/remove via API).
+        </li>
+        <li>
+          Home-rule specifics (endpoint shapes for local declarations; whether declaring a subset of locals
+          natively scopes the calculation) are determined during the registration implementation. If native
+          scoping holds, no response-side authority suppression is needed in the engine.
+        </li>
+        <li>
+          The engine's "is the destination registered?" pre-check is a <strong>cost optimization</strong>
+          (skip a billable call that would return $0), not the compliance mechanism — Avalara's nexus
+          handling is.
+        </li>
+      </ul>
+
+      <h2>Client layer</h2>
+      <p>
+        <code>src/server/utils/avalara/</code> mirrors the Rutter client layout
+        (<code>src/server/utils/rutter/</code>).
+      </p>
+      <ul>
+        <li>
+          <strong>SDK</strong>: official <code>avatax</code> npm package (AvaTax-REST-V2-JS-SDK) unless
+          evaluation surfaces a blocker.
+        </li>
+        <li>
+          <strong>Credential resolution</strong> from Plantiful-account-level env config;
+          <strong>companyCode resolution</strong> from the org's foundation record.
+        </li>
+        <li>
+          <strong>Entitlement short-circuit</strong>: transactional calls are refused when the org's
+          entitlement is off. Lookup endpoints stay callable but bill at ~1/10 the transaction rate — cache
+          lookup results (tax codes, jurisdiction lists) server-side; never call per keystroke.
+        </li>
+        <li>
+          <strong><code>X-Avalara-Client</code> header on every call</strong> (required for all
+          integrations): <code>Plantiful;a0nUz0000158kdYIAQ</code> (app name + Avalara-issued version value).
+          The exact sandbox vs production variants need confirming with Avalara — kickoff notes mention a
+          <code>QA</code> suffix off-production, but the recorded value doesn't end that way. The SDK
+          auto-fills adapter fields.
+        </li>
+        <li>
+          <strong>Connection reuse</strong>: SSL negotiation costs ~0.22s per round trip; keep-alive is
+          mandatory, not optional.
+        </li>
+        <li>
+          Expose <code>CreateOrAdjustTransaction</code> in the client surface — it is the idempotent retry
+          primitive for persisted document types (see <a href="./error-handling.html">error handling</a>).
+        </li>
+      </ul>
+
+      <h2>Call persistence: AvalaraCallRecord</h2>
+      <p>
+        Every AvaTax request/response persists via an <code>AvalaraCallRecord</code> model
+        (<code>AccountingSyncRecord</code> analog): org FK, shipment/order FKs, request
+        pathname/method/body, response body, status, <code>initiatedAt</code>, Avalara document identifiers.
+        Written at the client layer so persistence is automatic, not per-feature opt-in. The record is
+        <strong>created before dispatch</strong> with the request payload; the response — or the failure —
+        lands on the same row, so a timeout can never produce a response-only or missing record.
+      </p>
+      <p>
+        Because request/response bodies carry end-customer PII (names, addresses, exemption certificates),
+        the store needs guardrails from day one:
+      </p>
+      <ul>
+        <li>
+          <strong>Org-scoped access</strong> — reads always filter by <code>organizationId</code>; no
+          cross-organization query surface.
+        </li>
+        <li>
+          <strong>Retention</strong> — define a bounded window (e.g. keep raw bodies N months, then prune or
+          truncate to summary fields); decide before launch, not after the table grows.
+        </li>
+        <li>
+          <strong>Redaction</strong> — the admin log-viewer surface (future) masks certificate numbers and
+          anything not needed for debugging.
+        </li>
+      </ul>
+      <p>
+        This one table serves four consumers: the sales-order tax display, error debugging (full
+        request+response even when the user proceeds manually), the per-shipment per-jurisdiction breakdown
+        (parsed from stored responses — never recomputed), and the outage-reconciliation pattern (replay the
+        saved payload with a TaxOverride).
+      </p>
+
+      <h2>Billing model</h2>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Call class</th>
+            <th>Rate</th>
+            <th>Gated by entitlement?</th>
+          </tr>
+          <tr>
+            <td><code>SalesOrder</code> calculations (v1 default)</td>
+            <td>~1/10 transaction rate</td>
+            <td>Yes</td>
+          </tr>
+          <tr>
+            <td>Committed/invoice documents (future)</td>
+            <td>Full transaction rate</td>
+            <td>Yes</td>
+          </tr>
+          <tr>
+            <td>Lookups (<code>ListTaxCodes</code>, jurisdictions, <code>ResolveAddress</code>)</td>
+            <td>~1/10 transaction rate</td>
+            <td>No — but cache aggressively</td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        Sandbox usage is not billed. Per-org cost control = the entitlement gate + the
+        registered-destination pre-check + debounce (see
+        <a href="./calculation-flow.html">calculation flow</a>).
+      </p>
+
+      <h2>Data split: Avalara company vs Plantiful</h2>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Lives on the Avalara company</th>
+            <th>Lives in Plantiful</th>
+          </tr>
+          <tr>
+            <td>Nexus declarations (mirrored from registration config)</td>
+            <td>Registration config (source of truth)</td>
+          </tr>
+          <tr>
+            <td>Location codes per POS facility (+ addresses)</td>
+            <td>Org locations, facility addresses</td>
+          </tr>
+          <tr>
+            <td>—</td>
+            <td>Tax classification ↔ tax code mapping (constants)</td>
+          </tr>
+          <tr>
+            <td>—</td>
+            <td>Exemption reason ↔ entity/use code mapping (constants)</td>
+          </tr>
+          <tr>
+            <td>—</td>
+            <td>All calculation results (<code>AvalaraCallRecord</code>, per-jurisdiction breakdown)</td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        Nothing org-specific is configured through Avalara's UI; the admin console is a Plantiful-internal
+        debugging surface only.
+      </p>
+
+      <footer>Sales Tax v2 (Avalara +) design docs · <a href="./index.html">back to overview</a></footer>
+    </div>
+  </body>
+</html>

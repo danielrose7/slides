@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Avalara Sales Tax — Document Lifecycle</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="backlink" href="./index.html">← Design overview</a>
+      <p class="eyebrow">Plantiful · Sales Tax v2 (Avalara +)</p>
+      <h1>Document lifecycle</h1>
+      <p class="standfirst">
+        Avalara document types, the v1 calculator-only lifecycle, returns and corrections, and the migration
+        path to committed transactions.
+      </p>
+
+      <h2>Avalara's document model (background)</h2>
+      <p>Four transaction families × two lifetimes:</p>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Family</th>
+            <th>Temporary (estimate)</th>
+            <th>Permanent (recorded)</th>
+          </tr>
+          <tr>
+            <td>Sales</td>
+            <td><code>SalesOrder</code></td>
+            <td><code>SalesInvoice</code></td>
+          </tr>
+          <tr>
+            <td>Return</td>
+            <td><code>ReturnOrder</code></td>
+            <td><code>ReturnInvoice</code></td>
+          </tr>
+          <tr>
+            <td>Purchase</td>
+            <td><code>PurchaseOrder</code></td>
+            <td><code>PurchaseInvoice</code></td>
+          </tr>
+          <tr>
+            <td>Inventory transfer</td>
+            <td><code>InventoryTransferOrder</code></td>
+            <td><code>InventoryTransferInvoice</code></td>
+          </tr>
+        </table>
+      </div>
+      <ul>
+        <li>
+          "Order" types are never persisted: id <code>-1</code>, unfetchable, never reportable, nothing to
+          cancel. "Invoice" types persist even uncommitted (excluded from reporting until committed).
+        </li>
+        <li>
+          Statuses for persisted docs: <code>Saved</code> → <code>Posted</code> → <code>Committed</code> →
+          (filing approval) <code>Locked</code>. <strong>Locked, not Committed, is the immutability
+          boundary</strong> — committed docs can still be adjusted or voided until a filing locks them.
+        </li>
+        <li>
+          Duplicate docCode on CreateTransaction is an <strong>error, never an upsert</strong>; the update
+          path for persisted docs is <code>AdjustTransaction</code> (or the
+          <code>CreateOrAdjustTransaction</code> upsert).
+        </li>
+        <li>Never use the Purchase family (consumer-use tax semantics) — seller-side only.</li>
+      </ul>
+
+      <h2>v1: calculator-only</h2>
+      <p>Every v1 calculation is <code>DocType: SalesOrder</code>:</p>
+      <ul>
+        <li>~1/10 the cost of committed transactions.</li>
+        <li>
+          Abandonment, deletion, and voiding in Plantiful are <strong>no-ops toward Avalara</strong> —
+          nothing was recorded.
+        </li>
+        <li>
+          Nothing Plantiful sells is reported to any tax authority through Avalara in v1; filing remains the
+          org's own process (informed by the per-jurisdiction breakdown we store).
+        </li>
+        <li>
+          Recalculation = a fresh <code>SalesOrder</code> call; there is no server-side state to keep in
+          sync.
+        </li>
+      </ul>
+      <p>
+        The tax basis can change (and recalculates) at any point
+        <strong>until the invoice is fully paid</strong>.
+      </p>
+
+      <h2>The fully-paid boundary</h2>
+      <p>"Post-paid" means <strong>fully paid</strong>, not partially paid:</p>
+      <ul>
+        <li><strong>Partially paid</strong> orders recalc normally — the tax basis is still live.</li>
+        <li>
+          <strong>Fully paid</strong> invoices cannot receive new credits in Plantiful (that would require
+          voiding a payment first). Money coming back on a fully paid order is therefore always a
+          <strong>return/refund</strong>, never a credit-driven recalc.
+        </li>
+      </ul>
+
+      <h2>Returns &amp; corrections</h2>
+      <p>Two mechanisms, split by intent:</p>
+      <ul>
+        <li>
+          <strong>Return</strong> (goods/money back to the customer): a return document with
+          <ul>
+            <li><code>TaxOverride: TaxDate</code> = the original sale's tax date (historical rate applies),</li>
+            <li><code>docDate</code> = the date the return was made,</li>
+            <li>positive quantity + negative amount per returned line, returned lines only.</li>
+            <li>
+              <code>RefundTransaction</code> automates exactly this (Full / Partial / TaxOnly / Percentage) —
+              evaluate using it directly.
+            </li>
+            <li>
+              Avalara stores <strong>no link</strong> between a return and its original invoice; Plantiful
+              persists that linkage.
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>Small correction</strong> (fixing a mistake on an existing order): adjustment semantics
+          (<code>AdjustTransaction</code> territory in the commit era; in v1, often just a recalc since
+          nothing is recorded).
+        </li>
+      </ul>
+      <p>
+        Open design line to draw: the precise boundary between "return" and "correction" — e.g. any quantity
+        coming back is a return; a price fix on a line is a correction.
+      </p>
+      <blockquote>
+        <p>
+          <strong>⚠️ OPEN DECISION — v1 return doc type.</strong> <code>ReturnInvoice</code> is a persisted
+          type, which conflicts with the "every v1 call is unrecorded" settled decision. The two candidate
+          resolutions: (a) v1 returns use the temporary <code>ReturnOrder</code> for calculation only — fully
+          consistent with calculator-only, nothing recorded; or (b) returns become the <strong>one</strong>
+          persisted-document exception in v1 — which pulls void handling, replay, and idempotency into v1
+          scope. Until the returns ticket resolves this, treat the SalesOrder-only decision as carrying this
+          single flagged exception. Do not build on either assumption.
+        </p>
+      </blockquote>
+
+      <h2>Migration path to committed transactions (future phase)</h2>
+      <ol>
+        <li>
+          Finalization trigger: invoice reaches fully paid → create/commit a <code>SalesInvoice</code> (via
+          <code>commit: true</code> or CommitTransaction). Recalculate at commit time — never trust a stale
+          estimate.
+        </li>
+        <li>
+          docCode continuity: an invoice may reuse the estimate's docCode (Order types are unrecorded, so no
+          collision), subject to the verified uniqueness key.
+        </li>
+        <li>
+          Amendments: committed-but-unlocked docs adjust/void; locked docs take a compensating
+          <code>ReturnInvoice</code> only.
+        </li>
+        <li>
+          Voiding: canceled/archived sales void their committed transaction
+          (<code>DocVoided</code>/<code>DocDeleted</code>).
+        </li>
+        <li>
+          Nexus is already declared per company in v1 (calculation requires it), so the commit era inherits a
+          correct tax profile — no nexus migration needed.
+        </li>
+        <li>
+          <code>VerifyTransaction</code> supports nightly ledger reconciliation (assert
+          date/totalAmount/totalTax against our records) if wanted.
+        </li>
+      </ol>
+
+      <footer>Sales Tax v2 (Avalara +) design docs · <a href="./index.html">back to overview</a></footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Avalara Sales Tax — Error Handling</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="backlink" href="./index.html">← Design overview</a>
+      <p class="eyebrow">Plantiful · Sales Tax v2 (Avalara +)</p>
+      <h1>Error handling &amp; resilience</h1>
+      <p class="standfirst">Error taxonomy, retry/idempotency, what users see, and the outage playbook.</p>
+
+      <h2>Two error classes</h2>
+      <ol>
+        <li>
+          <strong>AvaTax errors</strong> — structured JSON with an error code. Avalara writes these for
+          end-user consumption: show code + message verbatim on the sales order page, with category-specific
+          hints. Errors and Exceptions share one handling path (Avalara's explicit guidance). "Verbatim"
+          means verbatim <strong>content</strong>, escaped rendering: message values render as plain text
+          (never <code>dangerouslySetInnerHTML</code>), bounded in length — external error strings are
+          untrusted input, not markup.
+        </li>
+        <li>
+          <strong>OS/network errors</strong> — timeouts, dropped connections. Trap them; never expose a raw
+          exception to the user. Set an explicit client-side timeout (interactive web app ⇒ short).
+          <code>ForceTimeout</code> (<code>$include=ForceTimeout</code>, 30s server delay) is the
+          purpose-built test hook for this path.
+        </li>
+      </ol>
+
+      <h3>Taxonomy → UI hints</h3>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Category</th>
+            <th>Representative codes</th>
+            <th>UI behavior</th>
+          </tr>
+          <tr>
+            <td>Address</td>
+            <td>304 MissingAddress, 309 InvalidAddress, 317 InvalidPostalCode</td>
+            <td>
+              Highlight address fields; suggest correction; address-verification layer reduces these upstream
+            </td>
+          </tr>
+          <tr>
+            <td>Auth/credential</td>
+            <td>30/31/34/35, 39 AccountExpired</td>
+            <td>
+              "Contact your admin"; alerts to Plantiful ops (shared credentials ⇒ affects every org)
+            </td>
+          </tr>
+          <tr>
+            <td>Service</td>
+            <td>500 ServerUnreachable, 1723 RateLimitExceeded (concurrency), timeouts</td>
+            <td>Suggest retry; link Avalara status; retry path below</td>
+          </tr>
+          <tr>
+            <td>Calculation</td>
+            <td>300 GetTaxError, 303 DocumentCodeConflict, 306 InvalidParameterValue</td>
+            <td>Surface verbatim; usually a payload bug — the stored request is the repro</td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        Address "deliverable but imprecise" outcomes are messages, not top-level error codes — the
+        fix-address UX reads the messages array, not just the code.
+      </p>
+
+      <h2>Retry &amp; idempotency</h2>
+      <ul>
+        <li>v1 <code>SalesOrder</code> calls are unrecorded — <strong>retries are inherently safe</strong>.</li>
+        <li>
+          Persisted document types (returns; the commit era): a timed-out create may have succeeded
+          server-side, and re-POSTing the same docCode errors (<code>DocumentCodeConflict</code>). Retry via
+          <strong><code>CreateOrAdjustTransaction</code></strong> — an upsert by docCode that is correct
+          whether or not the original landed. Always send our own docCode; omitting it (server-assigned GUID)
+          forfeits this protection.
+        </li>
+        <li>Open a fresh connection for the retry attempt (Avalara's guidance).</li>
+      </ul>
+
+      <h2>User-facing failure path</h2>
+      <p>When a calculation fails and retry doesn't resolve it:</p>
+      <ol>
+        <li>
+          The order cannot save with auto-calculated tax until the error resolves <strong>or</strong> the
+          user explicitly proceeds manually.
+        </li>
+        <li>
+          Manual proceed defaults to $0 tax with the option to enter an amount. Every manual proceed is
+          logged (who, when, which error) — admins can see which orders bypassed Avalara.
+        </li>
+        <li>
+          POS: failures surface but never block checkout. <strong>Open question (POS ticket): what tax
+          amount applies when the calculation fails at checkout</strong> — last successful estimate for this
+          cart, a configured fallback, or $0? Whatever the answer, the choice is logged with the failed
+          calculation so under-collection is auditable and reconcilable.
+        </li>
+      </ol>
+      <p>
+        Note: Avalara's own outage guidance never endorses "proceed at $0 and forget" — its sanctioned
+        strategies are block-completion or estimated-rate-then-reconcile, under the cardinal rule
+        <em>whatever you collect, you must remit</em>. Our manual-proceed path is an operator escape hatch,
+        deliberately logged and visible, not a silent default.
+      </p>
+
+      <h2>Outages</h2>
+      <ul>
+        <li>
+          <strong>Avalara does not queue transactions</strong> — any queue/replay layer is ours (Inngest).
+        </li>
+        <li>
+          v1 posture: tax estimates fail visibly; the manual path covers urgent orders; recalculation happens
+          organically on the next tax-basis change or manual flush once service returns. Nothing needs
+          replaying because nothing is recorded.
+        </li>
+        <li>
+          If a fallback/manual tax was charged on a <em>persisted</em> doc (commit era), the documented
+          reconciliation: replay the saved <code>CreateTransactionModel</code> (from
+          <code>AvalaraCallRecord</code>) with <code>TaxOverride: TaxAmount</code> via
+          CreateOrAdjustTransaction. The response then carries both <code>totalTax</code> (charged) and
+          <code>totalTaxCalculated</code> (Avalara's number) — an auditable over/under-collection delta.
+        </li>
+        <li>
+          POS offline fallback (Tax Content API: daily rate/rule tables per location) is a documented option
+          but real work (thresholds, caps, holiday windows implemented client-side) — future phase, not v1.
+        </li>
+      </ul>
+
+      <h2>Monitoring</h2>
+      <ul>
+        <li>
+          status.avalara.com is the status surface; incidents route to Slack (status-page webhook/bridge
+          ticket).
+        </li>
+        <li>
+          No published SLA/latency/RPS numbers; the one documented limit is concurrency (error 1723). Treat
+          sustained 1723s as a signal to widen the debounce window.
+        </li>
+        <li>
+          Every call is in <code>AvalaraCallRecord</code> — the audit and debugging source of truth.
+        </li>
+        <li>
+          Alerting does not depend on the database: emit low-cardinality metrics (result, error category,
+          latency, timeout rate) alongside the record write, so a DB outage or slow write can't hide an
+          Avalara service failure.
+        </li>
+      </ul>
+
+      <footer>Sales Tax v2 (Avalara +) design docs · <a href="./index.html">back to overview</a></footer>
+    </div>
+  </body>
+</html>

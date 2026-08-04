@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Avalara Sales Tax — Design Overview</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <p class="eyebrow">Plantiful · Sales Tax v2 (Avalara +)</p>
+      <h1>Avalara integration — design overview</h1>
+      <p class="standfirst">
+        One Plantiful Avalara account; one Avalara company per organization; v1 uses Avalara as a calculator
+        only. This page is the map — the substance lives in the linked design docs.
+      </p>
+
+      <h2>Documents</h2>
+      <div class="docs">
+        <a class="doc-card" href="./architecture.html">
+          <p class="t">Architecture</p>
+          <p class="d">
+            Account &amp; company model, nexus sync, client layer, AvalaraCallRecord, entitlement gating,
+            billing
+          </p>
+        </a>
+        <a class="doc-card" href="./calculation-flow.html">
+          <p class="t">Calculation flow</p>
+          <p class="d">
+            Hook points, flush/debounce triggers, cost pre-checks, payload assembly, net-amount distribution
+          </p>
+        </a>
+        <a class="doc-card" href="./lifecycle.html">
+          <p class="t">Document lifecycle</p>
+          <p class="d">
+            Doc types, calculator-only v1, the fully-paid boundary, returns vs corrections, commit-era
+            migration
+          </p>
+        </a>
+        <a class="doc-card" href="./error-handling.html">
+          <p class="t">Error handling</p>
+          <p class="d">Error taxonomy &amp; UI hints, retry/idempotency, outage playbook, monitoring</p>
+        </a>
+      </div>
+
+      <h2>The v1 calculation loop</h2>
+      <div class="flow">
+        <span class="step">tax-basis change</span><span class="arr">→</span>
+        <span class="step">flush / debounce window</span><span class="arr">→</span>
+        <span class="step">pre-checks (entitlement · registration · exempt-tracking)</span
+        ><span class="arr">→</span> <span class="step">AvalaraCallRecord (request)</span
+        ><span class="arr">→</span> <span class="step">CreateTransaction (SalesOrder)</span
+        ><span class="arr">→</span> <span class="step">AvalaraCallRecord (response / failure)</span
+        ><span class="arr">→</span>
+        <span class="step">per-jurisdiction breakdown + display</span>
+      </div>
+
+      <h2>Settled decisions</h2>
+      <ul class="decisions">
+        <li>
+          <strong>Calculator-only v1</strong> — every call <code>DocType: SalesOrder</code>:
+          <span class="why">unrecorded, ~1/10 cost, nothing to void on abandonment</span>
+        </li>
+        <li>
+          <strong>Nexus syncs to Avalara</strong> —
+          <span class="why"
+            >no declared nexus ⇒ $0 everywhere; Plantiful registration config is the source of truth, mirrored
+            per company</span
+          >
+        </li>
+        <li>
+          <strong>Tax date</strong> — invoice date, ship-date fallback;
+          <span class="why">a date change recalcs like any line edit</span>
+        </li>
+        <li>
+          <strong>Net line amounts</strong> — discounts + credits pre-applied via a rounding-safe distribution
+          util;
+          <span class="why"
+            >third-party coupons excepted (negative <code>OC030000</code> line, pre-coupon base)</span
+          >
+        </li>
+        <li>
+          <strong>Partial exemption</strong> — header <code>entityUseCode</code> + per-line
+          <code>taxCode</code>;
+          <span class="why">ag-exempt customers still taxed on non-qualifying lines</span>
+        </li>
+        <li>
+          <strong>No NT short-circuit</strong> —
+          <span class="why">send real tax codes; Avalara decides taxability</span>
+        </li>
+        <li>
+          <strong>Fully-paid boundary</strong> —
+          <span class="why"
+            >no new credits after full payment; money-back is a return/refund, never a credit-recalc</span
+          >
+        </li>
+        <li>
+          <strong>Lookups bill at ~1/10 rate</strong> —
+          <span class="why">cache tax-code and jurisdiction lists server-side; never call per keystroke</span>
+        </li>
+      </ul>
+
+      <h2>Pending verifications</h2>
+      <div class="pending">
+        <p class="t">Verify before building on</p>
+        <ul>
+          <li>Partial-exemption behavior in sandbox (client scaffold verification suite)</li>
+          <li>Entity/use letters vs live <code>ListEntityUseCodes</code> (same suite)</li>
+          <li>docCode uniqueness key — company vs +DocType vs +customerCode (entitlement ticket tests)</li>
+          <li>HOSPITAL / MULTIPLE_POINTS_OF_USE exemption usage in prd (read-only psql)</li>
+          <li>Debounce window sizing from 30-day prd edit-gap analysis (read-only psql)</li>
+        </ul>
+        <p class="t">Open design decisions</p>
+        <ul>
+          <li>
+            v1 return doc type — <code>ReturnOrder</code> (calc-only) vs persisted
+            <code>ReturnInvoice</code> (returns ticket)
+          </li>
+          <li>Return ↔ original-invoice linkage model — Avalara stores none; we must (returns ticket)</li>
+          <li>
+            Return vs correction boundary — <code>ReturnInvoice</code> vs
+            <code>AdjustTransaction</code> (returns ticket)
+          </li>
+          <li>
+            Home-rule nexus scoping — do subset local declarations natively scope calculation, and is
+            response-side suppression needed at all? (registration ticket)
+          </li>
+          <li>POS fallback tax amount when calculation fails at checkout (POS ticket)</li>
+        </ul>
+      </div>
+
+      <h2>Key parameters</h2>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Parameter</th>
+            <th>Value</th>
+          </tr>
+          <tr>
+            <td>Client header</td>
+            <td>
+              <code>Plantiful;a0nUz0000158kdYIAQ</code> (Avalara-issued version value; sandbox/prod variants
+              to confirm)
+            </td>
+          </tr>
+          <tr>
+            <td>companyCode limit</td>
+            <td>25 characters, caller-chosen, provisioned via CreateCompanies</td>
+          </tr>
+          <tr>
+            <td>Endpoints</td>
+            <td>
+              <code>sandbox-rest.avatax.com</code> / <code>rest.avatax.com</code> — separate credentials per
+              environment
+            </td>
+          </tr>
+          <tr>
+            <td>Call budget</td>
+            <td>~3–5 calls per order across its life</td>
+          </tr>
+          <tr>
+            <td>Freight codes</td>
+            <td>
+              Ownership-transfer dependent: common-carrier <code>FR020100</code>; own-truck TBD; handling
+              <code>OH010000</code> / combined <code>FR030000</code>
+            </td>
+          </tr>
+          <tr>
+            <td>Retry primitive</td>
+            <td>
+              <code>CreateOrAdjustTransaction</code> (persisted docs); SalesOrder retries inherently safe
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <footer>
+        Sales Tax v2 (Avalara +) design docs · maintained alongside the Linear project · see also the
+        <a href="../avalara-questions.html">kickoff questions doc</a>
+      </footer>
+    </div>
+  </body>
+</html>
