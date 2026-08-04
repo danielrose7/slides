@@ -67,6 +67,31 @@
           on demand — nobody waits on a timer when they want the number.
         </li>
       </ul>
+      <h3>Flush concurrency: single-flight lock</h3>
+      <p>
+        Flushes must be serialized — a manual flush racing the debounce timer, two users on the same order,
+        or a trigger landing mid-calculation must not produce overlapping Avalara calls (each costs quota,
+        and Avalara throttles concurrency — error 1723). The analog is the payments mutex
+        (<code>processingPaymentLock</code>: atomic compare-and-set on the shipment row, explicit unlock),
+        adapted for tax:
+      </p>
+      <ul>
+        <li>
+          <strong>Single-flight + coalesce</strong> — a trigger arriving while a calculation holds the lock
+          marks the window dirty and fires exactly one follow-up recalc on release; N triggers during flight
+          collapse to one call. Unlike payments, a competing flush never errors — blocking the user is worse
+          than waiting.
+        </li>
+        <li>
+          <strong>Latest-wins guard</strong> — each dispatch is stamped with the tax-basis version it was
+          computed from; responses whose version is no longer current are discarded, so a slow in-flight
+          response can't overwrite a fresher result.
+        </li>
+        <li>
+          <strong>Crash-safe</strong> — the lock expires after a timeout so a wedged holder can't freeze tax
+          recalc on an order indefinitely.
+        </li>
+      </ul>
       <p>
         The window was chosen from data, not intuition. A 30-day analysis of production sales-order edit
         behavior (2026-08-04, read-only prd; tax-basis event types from sales-activity tracking) found
