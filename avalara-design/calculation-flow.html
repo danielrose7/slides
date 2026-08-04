@@ -68,10 +68,55 @@
         </li>
       </ul>
       <p>
-        The debounce window is chosen from data, not intuition: analyze 30 days of production sales-order
-        edit behavior (inter-edit gaps from sales-activity tracking, read-only prd connection), simulate
-        candidate windows against real edit streams, and pick the smallest window that keeps typical
-        burst-editing to one call. Record the distribution and the chosen value on the recalc ticket.
+        The window was chosen from data, not intuition. A 30-day analysis of production sales-order edit
+        behavior (2026-08-04, read-only prd; tax-basis event types from sales-activity tracking) found
+        <strong>10,497 edits across 3,023 orders ≈ 3.5 edits per order</strong> — already inside Avalara's
+        ~3–5 calls-per-order budget with no debounce at all, so the window is an optimization, not a
+        cost-safety requirement. The modal inter-edit gap is <strong>10–30s</strong> (2,199 of 7,474 gaps);
+        within-session (&lt;30 min) median 35s, p75 ≈ 101s, p90 ≈ 337s.
+      </p>
+      <p>Simulated monthly call counts by trailing debounce window:</p>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Window</th>
+            <th>none</th>
+            <th>15s</th>
+            <th>30s</th>
+            <th>45s</th>
+            <th>60s</th>
+            <th>120s</th>
+            <th>300s</th>
+          </tr>
+          <tr>
+            <td>Calls / month</td>
+            <td>10,497</td>
+            <td>9,834</td>
+            <td><strong>8,175</strong></td>
+            <td>7,498</td>
+            <td>7,095</td>
+            <td>6,417</td>
+            <td>5,808</td>
+          </tr>
+          <tr>
+            <td>Reduction</td>
+            <td>—</td>
+            <td>6%</td>
+            <td><strong>22%</strong></td>
+            <td>29%</td>
+            <td>32%</td>
+            <td>39%</td>
+            <td>45%</td>
+          </tr>
+        </table>
+      </div>
+      <p>
+        The curve flattens past ~60s — human edit cadence here is tens of seconds to minutes.
+        <strong>Recommended window: 30 seconds</strong>: it captures the modal burst bucket for a ~22% call
+        reduction while keeping the displayed estimate fresh; the flush affordances cover immediate needs.
+        (Full order updates flush immediately, so realized savings run slightly below the simulation.) Full
+        distribution recorded on the recalc ticket; revisit only if sustained concurrency errors suggest
+        widening.
       </p>
 
       <h2>Cost-avoidance pre-checks (before any call)</h2>
@@ -134,12 +179,34 @@
 
       <h3>Net-amount distribution (discounts &amp; credits)</h3>
       <p>
-        Avalara's recommendation: send net line amounts with discounts and credits already applied ($10 item
-        at 10% discount ⇒ send $9). A dedicated util distributes shipment-level discounts and credits down to
-        line amounts — layered on top of existing line-level discounts — with deterministic rounding:
-        distributed amounts sum exactly to shipment totals, remainder cents assigned by a stable rule,
-        property-tested.
+        <strong>We send Avalara net information</strong> — line amounts with discounts and credits already
+        applied ($10 item at 10% discount ⇒ send $9). This is Avalara's recommendation: the customer owes tax
+        on what they actually pay. Shipment-level discounts and credits don't map to any single line, so a
+        dedicated util distributes them down to line amounts — layered on top of existing line-level
+        discounts — with deterministic rounding: distributed amounts sum exactly to shipment totals,
+        remainder cents assigned by a stable rule, property-tested.
       </p>
+      <pre><code>// Distribute a shipment-level discount/credit down to its lines,
+// producing the net per-line amounts sent to Avalara.
+function distributeToLines(lines, shipmentReduction):
+  eligible = lines.filter(line => line.discountable)   // discountable flag gates shipment-level discounts
+  base     = sum(eligible, line => line.extendedAmount) // extended = qty × price, line-level discounts already applied
+
+  distributed = 0
+  for line in eligible.sortBy(stableKey):               // stable order ⇒ deterministic rounding
+    share          = roundToCent(shipmentReduction * line.extendedAmount / base)
+    line.netAmount = line.extendedAmount - share
+    distributed   += share
+
+  // remainder cents from rounding land on the last eligible line (stable rule)
+  eligible.last.netAmount -= (shipmentReduction - distributed)
+
+  // invariant (property-tested): sum(netAmount) === sum(extendedAmount) - shipmentReduction
+
+// Example — $10.00 line + $5.00 line, $1.50 shipment discount:
+//   $10.00 line: share $1.00 → net $9.00 sent to Avalara
+//   $5.00 line:  share $0.50 → net $4.50 sent to Avalara
+//   nets sum to $13.50 = $15.00 - $1.50 exactly; no drift vs the order total</code></pre>
       <p>
         Exception: third-party/manufacturer-reimbursed coupons go as a
         <strong>negative line with tax code <code>OC030000</code></strong> — the customer is taxed on the

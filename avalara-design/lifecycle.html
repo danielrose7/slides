@@ -129,13 +129,14 @@
       </p>
       <blockquote>
         <p>
-          <strong>⚠️ OPEN DECISION — v1 return doc type.</strong> <code>ReturnInvoice</code> is a persisted
-          type, which conflicts with the "every v1 call is unrecorded" settled decision. The two candidate
-          resolutions: (a) v1 returns use the temporary <code>ReturnOrder</code> for calculation only — fully
-          consistent with calculator-only, nothing recorded; or (b) returns become the <strong>one</strong>
-          persisted-document exception in v1 — which pulls void handling, replay, and idempotency into v1
-          scope. Until the returns ticket resolves this, treat the SalesOrder-only decision as carrying this
-          single flagged exception. Do not build on either assumption.
+          <strong>✅ V1 DIRECTION (2026-08-04) — returns are punted.</strong> Since v1 is estimates-only
+          (nothing recorded in Avalara), the return mechanics above are <strong>not v1 scope</strong>: no
+          persisted <code>ReturnInvoice</code>, no void/replay/idempotency machinery. If a v1 return needs a
+          tax number at all, the temporary <code>ReturnOrder</code> type fits the calculator-only model. The
+          material above — <code>TaxOverride: TaxDate</code>, <code>RefundTransaction</code>,
+          Plantiful-persisted linkage, the return-vs-correction boundary — is kept as
+          <strong>scaffolding for the commit era</strong> and lives on the returns ticket. Revisit when
+          committed transactions arrive.
         </p>
       </blockquote>
 

@@ -107,19 +107,21 @@
           <li>Partial-exemption behavior in sandbox (client scaffold verification suite)</li>
           <li>Entity/use letters vs live <code>ListEntityUseCodes</code> (same suite)</li>
           <li>docCode uniqueness key — company vs +DocType vs +customerCode (entitlement ticket tests)</li>
-          <li>HOSPITAL / MULTIPLE_POINTS_OF_USE exemption usage in prd (read-only psql)</li>
-          <li>Debounce window sizing from 30-day prd edit-gap analysis (read-only psql)</li>
+          <li>
+            ✅ <s>HOSPITAL / MULTIPLE_POINTS_OF_USE exemption usage in prd</s> — resolved 2026-08-04, see
+            production findings below
+          </li>
+          <li>
+            ✅ <s>Debounce window sizing from 30-day prd edit-gap analysis</s> — resolved 2026-08-04: 30s
+            window recommended, see <a href="./calculation-flow.html">calculation flow</a>
+          </li>
         </ul>
         <p class="t">Open design decisions</p>
         <ul>
           <li>
-            v1 return doc type — <code>ReturnOrder</code> (calc-only) vs persisted
-            <code>ReturnInvoice</code> (returns ticket)
-          </li>
-          <li>Return ↔ original-invoice linkage model — Avalara stores none; we must (returns ticket)</li>
-          <li>
-            Return vs correction boundary — <code>ReturnInvoice</code> vs
-            <code>AdjustTransaction</code> (returns ticket)
+            ✅ <s>Return doc type / linkage / correction boundary</s> — punted for v1 (2026-08-04):
+            estimates-only means no persisted return docs; scaffolding kept on the returns ticket for the
+            commit era (see <a href="./lifecycle.html">lifecycle</a>)
           </li>
           <li>
             Home-rule nexus scoping — do subset local declarations natively scope calculation, and is
@@ -128,6 +130,111 @@
           <li>POS fallback tax amount when calculation fails at checkout (POS ticket)</li>
         </ul>
       </div>
+
+      <h2>Production findings (prd, 2026-08-04)</h2>
+      <p>
+        Raw data from the two read-only prd analyses the spike called for. Debounce detail lives on
+        <a href="./calculation-flow.html">calculation flow</a>.
+      </p>
+      <div class="scroll">
+        <table>
+          <tr>
+            <th>Exemption reason (tax-exempt customers)</th>
+            <th>Total</th>
+            <th>Active</th>
+            <th>Orgs</th>
+          </tr>
+          <tr>
+            <td>(none set)</td>
+            <td>28,244</td>
+            <td>16,286</td>
+            <td>59</td>
+          </tr>
+          <tr>
+            <td>AGRICULTURAL_PRODUCTION</td>
+            <td>3,653</td>
+            <td>3,639</td>
+            <td>14</td>
+          </tr>
+          <tr>
+            <td>RESALE</td>
+            <td>2,089</td>
+            <td>2,066</td>
+            <td>42</td>
+          </tr>
+          <tr>
+            <td>RELIGIOUS_ORGANIZATION</td>
+            <td>418</td>
+            <td>418</td>
+            <td>14</td>
+          </tr>
+          <tr>
+            <td>LOCAL_GOVERNMENT</td>
+            <td>293</td>
+            <td>293</td>
+            <td>17</td>
+          </tr>
+          <tr>
+            <td>EDUCATIONAL_ORGANIZATION</td>
+            <td>185</td>
+            <td>185</td>
+            <td>21</td>
+          </tr>
+          <tr>
+            <td>CHARITABLE_ORGANIZATION</td>
+            <td>157</td>
+            <td>156</td>
+            <td>16</td>
+          </tr>
+          <tr>
+            <td>HOSPITAL</td>
+            <td>117</td>
+            <td>117</td>
+            <td>9</td>
+          </tr>
+          <tr>
+            <td>OTHER</td>
+            <td>93</td>
+            <td>92</td>
+            <td>12</td>
+          </tr>
+          <tr>
+            <td>STATE_GOVERNMENT</td>
+            <td>42</td>
+            <td>42</td>
+            <td>14</td>
+          </tr>
+          <tr>
+            <td>FEDERAL_GOVERNMENT</td>
+            <td>6</td>
+            <td>6</td>
+            <td>4</td>
+          </tr>
+          <tr>
+            <td>TRIBAL_GOVERNMENT</td>
+            <td>1</td>
+            <td>1</td>
+            <td>1</td>
+          </tr>
+        </table>
+      </div>
+      <ul>
+        <li>
+          <strong>HOSPITAL is genuinely used</strong> (117 active, 9 orgs) — needs an entity/use mapping;
+          <strong>five values are unused everywhere</strong> (DIRECT_MAIL, DIRECT_PAY_PERMIT,
+          FOREIGN_DIPLOMAT, INDUSTRIAL_PRODUCTION, MULTIPLE_POINTS_OF_USE) and will be hidden instead of
+          mapped
+        </li>
+        <li>
+          <strong>16,286 active exempt customers have no reason set</strong> — the required-reason rule and
+          cleanup flags will hit a large population; null must mean "not exempt toward Avalara" until typed
+        </li>
+        <li>
+          <strong>Edit cadence: ~3.5 tax-basis edits per order</strong> (10,497 edits / 3,023 orders /
+          30 days) — already inside Avalara's ~3–5 calls-per-order budget; a
+          <strong>30-second debounce window</strong> is recommended (~22% call reduction)
+        </li>
+      </ul>
 
       <h2>Key parameters</h2>
       <div class="scroll">
